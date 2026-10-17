@@ -22,11 +22,14 @@ python scripts/build_data.py            # real data
 python scripts/build_data.py --sample   # offline synthetic data
 ```
 
+## Tabs
+`overview` (Live signal → Global trend table) and `markets` (Risk appetite, Correlation, Sectors). Add a tab in `TABS` at the top of `assets/core.js`.
+
 ## Add a chart
 1. Create `assets/panels/mychart.js`:
 ```js
-Pulse.register({ id:'mychart', order: 9, width:'half', title:'My chart', subtitle:'...',
-  render(el, data){ el.innerHTML='<div class="plot" style="height:300px"></div>';
+Pulse.register({ id:'mychart', tab:'markets', order: 9, width:'half', title:'My chart', subtitle:'...',
+  render(el, data, tools, state){ el.innerHTML='<div class="plot" style="height:300px"></div>';
     Pulse.plot(el.querySelector('.plot'), [{x:data.multi.dates, y:data.multi.series['S&P 500']}], Pulse.layout()); } });
 ```
 2. Add `<script src="assets/panels/mychart.js"></script>` in `index.html`.

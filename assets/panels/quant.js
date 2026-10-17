@@ -1,41 +1,58 @@
 Pulse.register({
-  id: 'quant', order: 4, title: 'Quant intelligence', subtitle: 'Candles, anchored VWAP, Bollinger bands, volume, %B and bandwidth (squeeze detection)',
-  render(el, d) {
-    const q = d.quant, names = Object.keys(q.tickers);
-    el.innerHTML = `<div class="ctl"><select class="tk">${names.map(n => `<option ${n === q.default ? 'selected' : ''}>${n}</option>`).join('')}</select>
-      <select class="an"><option value="ytd">VWAP from year start</option><option value="swing">VWAP from swing low</option><option value="hivol">VWAP from highest-volume day</option></select></div>
-      <div class="chips"></div><div class="plot" style="height:640px"></div>`;
-    const plot = el.querySelector('.plot'), chips = el.querySelector('.chips');
-    const draw = () => {
-      const t = q.tickers[el.querySelector('.tk').value], an = el.querySelector('.an').value, s = t.stats, x = t.dates;
-      const up = t.close.map((c, i) => c >= t.open[i]);
-      chips.innerHTML = [
-        `ATR% ${Pulse.fmt(s.atr_pct, 2)} (pctile ${Pulse.fmt(s.atr_pctile, 0)})`,
-        s.squeeze ? '<span class="warn">Squeeze: bandwidth in low percentile</span>' : `Bandwidth pctile ${Pulse.fmt(s.bw_pctile, 0)}`,
-        `RVOL ${Pulse.fmt(s.rvol, 2)}x`, `RSI ${Pulse.fmt(s.rsi, 0)}`, `Dist 200D ${Pulse.sgn(s.dist200, 1)}`,
-        `VWAP anchor ${t.vwap_anchor[an]}`
-      ].map(c => `<span class="chip">${c}</span>`).join('');
-      const L = (y, n, c, dash, w) => ({ x, y, name: n, type: 'scatter', mode: 'lines', line: { color: c, width: w || 1, dash }, xaxis: 'x', yaxis: 'y' });
+  id: 'quant', tab: 'overview', order: 4,
+  title: 'Price structure', subtitle: 'Price with Bollinger band, 50/200-day averages and anchored VWAP. Volume below.',
+  render(el, d, tools, st) {
+    const P = Pulse, q = d.quant, names = Object.keys(q.tickers);
+    st.tk = st.tk || q.default; st.an = st.an || 'ytd'; st.rng = st.rng || 126; st.kind = st.kind || 'candle';
+    const sel = document.createElement('select'); sel.className = 'sel';
+    sel.innerHTML = names.map(n => `<option ${n === st.tk ? 'selected' : ''}>${n}</option>`).join('');
+    sel.onchange = () => { st.tk = sel.value; draw(); };
+    const an = document.createElement('select'); an.className = 'sel';
+    an.innerHTML = [['ytd', 'VWAP · year start'], ['swing', 'VWAP · swing low'], ['hivol', 'VWAP · top-volume day']].map(([v, l]) => `<option value="${v}" ${v === st.an ? 'selected' : ''}>${l}</option>`).join('');
+    an.onchange = () => { st.an = an.value; draw(); };
+    tools.append(sel, an,
+      P.seg([['candle', 'Candles'], ['line', 'Line']], st.kind, v => { st.kind = v; draw(); }),
+      P.seg([[63, '3M'], [126, '6M'], [252, '1Y']], st.rng, v => { st.rng = v; draw(); }));
+    el.innerHTML = `<div class="stats"></div><div class="legend"></div><div class="plot" style="height:520px"></div>`;
+    const plot = el.querySelector('.plot');
+
+    function draw() {
+      const t = q.tickers[st.tk], s = t.stats, n = t.dates.length, i0 = Math.max(0, n - st.rng);
+      const cut = a => a.slice(i0), x = cut(t.dates);
+      const pctl = v => v == null ? '' : `${P.fmt(v, 0)}th pct`;
+      el.querySelector('.stats').innerHTML = [
+        ['Close', P.fmt(s.close, 2), `${P.sgn(s.dist200)} vs 200D`],
+        ['RSI (14)', P.fmt(s.rsi, 0), s.rsi > 70 ? 'Overbought zone' : s.rsi < 30 ? 'Oversold zone' : 'Neutral'],
+        ['ATR %', P.fmt(s.atr_pct, 2) + '%', pctl(s.atr_pctile)],
+        ['Band width', P.fmt(s.bandwidth, 1) + '%', s.squeeze ? 'Squeeze · breakout risk' : pctl(s.bw_pctile)],
+        ['Rel. volume', P.fmt(s.rvol, 2) + '×', 'vs 20-day avg'],
+      ].map(([k, v, h]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div><div class="h">${h}</div></div>`).join('');
+
+      const c = { s1: P.css('--s1'), s2: P.css('--s2'), mu: P.css('--muted'), up: P.css('--s3'), dn: P.css('--neg'), wash: P.css('--wash'), ink: P.css('--ink') };
+      el.querySelector('.legend').innerHTML = `<span><i class="line" style="background:${c.s2}"></i>Anchored VWAP (${t.vwap_anchor[st.an]})</span>
+        <span><i class="line" style="background:${c.s1}"></i>50-day</span><span><i class="line" style="background:${c.mu}"></i>200-day</span>
+        <span><i style="background:${c.wash};border:1px solid ${c.s1}55"></i>Bollinger band (20, 2σ)</span>`;
+      const L = (y, name, color, w, dash) => ({ x, y: cut(y), name, type: 'scatter', mode: 'lines', line: { color, width: w, dash }, hovertemplate: '%{y:.2f}' });
+      const price = st.kind === 'candle'
+        ? { x, open: cut(t.open), high: cut(t.high), low: cut(t.low), close: cut(t.close), type: 'candlestick', name: st.tk,
+            increasing: { line: { color: c.up, width: 1 }, fillcolor: c.up }, decreasing: { line: { color: c.dn, width: 1 }, fillcolor: c.dn }, whiskerwidth: 0 }
+        : { x, y: cut(t.close), type: 'scatter', mode: 'lines', name: st.tk, line: { color: c.ink, width: 1.6 }, hovertemplate: '%{y:.2f}' };
+      const up = t.close.map((v, i) => v >= t.open[i]);
       const traces = [
-        { x, open: t.open, high: t.high, low: t.low, close: t.close, type: 'candlestick', name: 'Price', yaxis: 'y', increasing: { line: { color: Pulse.css('--good') } }, decreasing: { line: { color: Pulse.css('--bad') } } },
-        L(t.bb_up, 'BB upper', '#8b94a7', 'dot'), L(t.bb_lo, 'BB lower', '#8b94a7', 'dot'),
-        L(t.sma50, 'SMA50', '#f0b429'), L(t.sma200, 'SMA200', '#b07cf5', null, 1.5),
-        L(t.vwap[an], 'Anchored VWAP', '#5b9cf5', null, 2),
-        { x, y: t.volume, type: 'bar', name: 'Volume', yaxis: 'y2', marker: { color: up.map(u => u ? Pulse.css('--good') : Pulse.css('--bad')), opacity: .6 } },
-        { x, y: t.vol_ma20, type: 'scatter', mode: 'lines', name: 'Vol MA20', yaxis: 'y2', line: { color: '#f0b429', width: 1 } },
-        { x, y: t.pctb, type: 'scatter', mode: 'lines', name: '%B', yaxis: 'y3', line: { color: '#5b9cf5' } },
-        { x, y: t.bandwidth, type: 'scatter', mode: 'lines', name: 'Bandwidth %', yaxis: 'y4', line: { color: '#f0b429', width: 1 } }
+        { x, y: cut(t.bb_up), type: 'scatter', mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', name: 'BB upper' },
+        { x, y: cut(t.bb_lo), type: 'scatter', mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: c.wash, hoverinfo: 'skip', name: 'BB lower' },
+        L(t.sma200, '200-day', c.mu, 1.4), L(t.sma50, '50-day', c.s1, 1.4), L(t.vwap[st.an], 'VWAP', c.s2, 1.8),
+        price,
+        { x, y: cut(t.volume), type: 'bar', yaxis: 'y2', name: 'Volume', marker: { color: cut(up).map(u => u ? c.up : c.dn), opacity: .35 }, hovertemplate: '%{y:.3s}' },
       ];
-      const g = Pulse.css('--line');
-      Pulse.plot(plot, traces, Pulse.layout({
-        xaxis: { rangeslider: { visible: false }, gridcolor: g, rangebreaks: [{ bounds: ['sat', 'mon'] }], anchor: 'y3' },
-        yaxis: { domain: [.38, 1], gridcolor: g }, yaxis2: { domain: [.2, .33], gridcolor: g },
-        yaxis3: { domain: [0, .16], gridcolor: g, range: [-.2, 1.2] },
-        yaxis4: { domain: [0, .16], overlaying: 'y3', side: 'right', showgrid: false },
-        shapes: [0, 1].map(v => ({ type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y3', y0: v, y1: v, line: { dash: 'dot', color: Pulse.css('--mut'), width: 1 } })),
-        hovermode: 'x', margin: { l: 55, r: 50, t: 10, b: 30 }, legend: { orientation: 'h', y: 1.06 }
+      P.plot(plot, traces, P.layout({
+        hovermode: 'x unified', bargap: .2,
+        xaxis: { rangeslider: { visible: false }, rangebreaks: [{ bounds: ['sat', 'mon'] }], anchor: 'y2' },
+        yaxis: { domain: [.24, 1], side: 'right' },
+        yaxis2: { domain: [0, .18], side: 'right', showgrid: false, tickformat: '.2s', nticks: 3 },
+        margin: { l: 8, r: 8, t: 4, b: 8 },
       }));
-    };
-    el.querySelectorAll('select').forEach(s => s.onchange = draw); draw();
+    }
+    draw();
   }
 });
