@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pulse Dashboard</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="dot"></span>Pulse<span class="muted"> Dashboard</span></div>
+  <div id="meta" class="muted small"></div>
+  <button id="themeBtn" class="btn" title="Toggle theme">◐</button>
+</header>
+<div id="banner" class="banner" hidden></div>
+<main id="panels" class="grid"></main>
+<footer class="foot muted small">
+  Descriptive analytics for research. Not investment advice. Data: Yahoo Finance via yfinance (delayed, unadjusted for data errors).
+  Sentiment/GDELT signals are excluded until validated.
+</footer>
+
+<!-- data (script tag so the page also works when opened from disk) -->
+<script src="data/pulse.js"></script>
+<script src="assets/core.js"></script>
+<!-- PANELS: to add a chart, create assets/panels/<name>.js and add one line here -->
+<script src="assets/panels/scorecard.js"></script>
+<script src="assets/panels/flags.js"></script>
+<script src="assets/panels/quant.js"></script>
+<script src="assets/panels/globaltable.js"></script>
+<script src="assets/panels/riskon.js"></script>
+<script src="assets/panels/corr.js"></script>
+<script src="assets/panels/sectors.js"></script>
+<script src="assets/panels/multi.js"></script>
+<script>Pulse.start();</script>
+</body>
+</html>

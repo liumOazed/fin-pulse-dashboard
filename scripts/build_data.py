@@ -1,0 +1,619 @@
+"""
+Pulse Dashboard - data builder.
+
+Downloads prices with yfinance, computes every metric the dashboard shows, and
+writes:
+    data/pulse.json   (raw data)
+    data/pulse.js     (same data as `window.PULSE_DATA = ...`, so index.html
+                       also works when opened by double-click)
+    data/signal_log.csv  (one row per day, for validating the score later)
+
+Run locally:   python scripts/build_data.py
+Demo data:     python scripts/build_data.py --sample
+"""
+from __future__ import annotations
+
+import json
+import math
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT / "data"
+
+# --------------------------------------------------------------------------
+# Universe  (edit these to change what the dashboard tracks)
+# --------------------------------------------------------------------------
+PRIMARY = "SPY"  # asset used for trend / regime
+
+GLOBAL = {
+    "S&P 500": "^GSPC",
+    "Nasdaq": "^IXIC",
+    "Dow Jones": "^DJI",
+    "Shanghai": "000001.SS",
+    "Nikkei 225": "^N225",
+    "Euro Stoxx 50": "^STOXX50E",
+    "Nifty 50": "^NSEI",
+    "Shenzhen": "399001.SZ",
+    "Hang Seng": "^HSI",
+    "FTSE 100": "^FTSE",
+    "Tadawul": "^TASI.SR",
+}
+BENCH_NAME = "S&P 500"
+
+SECTORS = {
+    "Technology": "XLK", "Financials": "XLF", "Health Care": "XLV",
+    "Cons. Discretionary": "XLY", "Energy": "XLE", "Comm. Services": "XLC",
+    "Industrials": "XLI", "Cons. Staples": "XLP", "Utilities": "XLU",
+    "Real Estate": "XLRE", "Materials": "XLB",
+}
+
+QUANT_TICKERS = ["SPY", "QQQ", "DIA", "IWM"]
+
+# Assets used in the correlation panel (cross-asset on purpose)
+CORR = {
+    "S&P 500": "^GSPC", "Nasdaq": "^IXIC", "Nikkei": "^N225",
+    "Euro Stoxx": "^STOXX50E", "FTSE": "^FTSE", "Hang Seng": "^HSI",
+    "Nifty": "^NSEI", "Gold": "GLD", "Treasuries": "TLT",
+    "Oil": "USO", "Dollar": "UUP", "Bitcoin": "BTC-USD",
+}
+
+RISK_EXTRA = ["XLY", "XLP", "HYG", "IEF", "RSP", "SPY", "^VIX", "^VIX3M", "CPER", "GLD"]
+
+ALL_TICKERS = sorted(
+    set(GLOBAL.values()) | set(SECTORS.values()) | set(QUANT_TICKERS)
+    | set(CORR.values()) | set(RISK_EXTRA) | {PRIMARY}
+)
+
+
+# --------------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------------
+def _clean(o):
+    if isinstance(o, dict):
+        return {k: _clean(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_clean(v) for v in o]
+    if isinstance(o, (np.bool_, bool)):
+        return bool(o)
+    if isinstance(o, (np.integer,)):
+        return int(o)
+    if isinstance(o, (np.floating, float)):
+        f = float(o)
+        return None if (math.isnan(f) or math.isinf(f)) else round(f, 4)
+    return o
+
+
+def _list(s, nd=4):
+    return [None if pd.isna(v) else round(float(v), nd) for v in s]
+
+
+def _dates(idx):
+    return [d.strftime("%Y-%m-%d") for d in idx]
+
+
+def pct_rank(s, v=None, n=252):
+    """Percentile (0-100) of v (default: last value) within the last n values."""
+    s = pd.Series(s).dropna().tail(n)
+    if len(s) < 30:
+        return None
+    v = s.iloc[-1] if v is None else v
+    return float((s <= v).mean() * 100)
+
+
+def rsi(close, n=14):
+    d = close.diff()
+    up = d.clip(lower=0).ewm(alpha=1 / n, adjust=False).mean()
+    dn = (-d.clip(upper=0)).ewm(alpha=1 / n, adjust=False).mean()
+    rs = up / dn.replace(0, np.nan)
+    return 100 - 100 / (1 + rs)
+
+
+def atr_pct(df, n=14):
+    pc = df["Close"].shift()
+    tr = pd.concat(
+        [df["High"] - df["Low"], (df["High"] - pc).abs(), (df["Low"] - pc).abs()], axis=1
+    ).max(axis=1)
+    return tr.ewm(alpha=1 / n, adjust=False).mean() / df["Close"] * 100
+
+
+def ret(c, n):
+    return float(c.iloc[-1] / c.iloc[-1 - n] - 1) * 100 if len(c) > n else None
+
+
+def closes(px, mapping):
+    cols = {n: px[t]["Close"] for n, t in mapping.items() if t in px}
+    return pd.concat(cols, axis=1).sort_index() if cols else pd.DataFrame()
+
+
+# --------------------------------------------------------------------------
+# Download
+# --------------------------------------------------------------------------
+def download(tickers, period="3y"):
+    import yfinance as yf
+
+    raw = yf.download(
+        tickers, period=period, interval="1d", auto_adjust=True,
+        group_by="ticker", progress=False, threads=True,
+    )
+    out = {}
+    for t in tickers:
+        try:
+            df = raw[t][["Open", "High", "Low", "Close", "Volume"]]
+            df = df.dropna(subset=["Close"])
+            if len(df) > 60:
+                out[t] = df
+        except Exception:
+            continue
+    return out
+
+
+# --------------------------------------------------------------------------
+# Panel 1 - Quant chart
+# --------------------------------------------------------------------------
+def quant_for(df):
+    c = df["Close"]
+    sma20, sma50, sma200 = (c.rolling(n).mean() for n in (20, 50, 200))
+    sd = c.rolling(20).std()
+    bb_up, bb_lo = sma20 + 2 * sd, sma20 - 2 * sd
+    pctb = (c - bb_lo) / (bb_up - bb_lo)
+    bw = (bb_up - bb_lo) / sma20 * 100
+    vol_ma = df["Volume"].rolling(20).mean()
+    rvol = df["Volume"] / vol_ma
+    atr = atr_pct(df)
+    r = rsi(c)
+
+    tail = df.tail(252)
+    idx = tail.index
+
+    def avwap(anchor):
+        sub = df.loc[anchor:]
+        tp = (sub["High"] + sub["Low"] + sub["Close"]) / 3
+        v = (tp * sub["Volume"]).cumsum() / sub["Volume"].cumsum().replace(0, np.nan)
+        return v.reindex(idx)
+
+    last = df.index[-1]
+    ytd_candidates = df.index[df.index >= pd.Timestamp(year=last.year, month=1, day=1)]
+    anchors = {
+        "ytd": ytd_candidates[0] if len(ytd_candidates) else idx[0],
+        "swing": df["Low"].tail(60).idxmin(),
+        "hivol": df["Volume"].tail(120).idxmax(),
+    }
+    vwap = {k: _list(avwap(a), 2) for k, a in anchors.items()}
+
+    bw_p = pct_rank(bw)
+    return {
+        "dates": _dates(idx),
+        "open": _list(tail["Open"], 2), "high": _list(tail["High"], 2),
+        "low": _list(tail["Low"], 2), "close": _list(tail["Close"], 2),
+        "volume": _list(tail["Volume"], 0),
+        "vol_ma20": _list(vol_ma.reindex(idx), 0),
+        "sma20": _list(sma20.reindex(idx), 2), "sma50": _list(sma50.reindex(idx), 2),
+        "sma200": _list(sma200.reindex(idx), 2),
+        "bb_up": _list(bb_up.reindex(idx), 2), "bb_lo": _list(bb_lo.reindex(idx), 2),
+        "pctb": _list(pctb.reindex(idx), 3), "bandwidth": _list(bw.reindex(idx), 3),
+        "vwap": vwap,
+        "vwap_anchor": {k: a.strftime("%Y-%m-%d") for k, a in anchors.items()},
+        "stats": {
+            "atr_pct": float(atr.iloc[-1]), "atr_pctile": pct_rank(atr),
+            "bandwidth": float(bw.iloc[-1]), "bw_pctile": bw_p,
+            "squeeze": bool(bw_p is not None and bw_p <= 15),
+            "rvol": None if pd.isna(rvol.iloc[-1]) else float(rvol.iloc[-1]),
+            "rsi": float(r.iloc[-1]),
+            "dist200": None if pd.isna(sma200.iloc[-1]) else float((c.iloc[-1] / sma200.iloc[-1] - 1) * 100),
+            "close": float(c.iloc[-1]),
+        },
+    }
+
+
+# --------------------------------------------------------------------------
+# Panel 2 - Global trend table + risk-on composite
+# --------------------------------------------------------------------------
+def global_table(px):
+    rows = []
+    for name, t in GLOBAL.items():
+        if t not in px:
+            continue
+        c = px[t]["Close"]
+        if len(c) < 210:
+            continue
+        sma50, sma200 = c.rolling(50).mean(), c.rolling(200).mean()
+        dist = (c / sma200 - 1) * 100
+        r126 = c.pct_change().tail(126)
+        vol = r126.std() * math.sqrt(252) * 100
+        r6 = ret(c, 126)
+        rows.append({
+            "name": name, "ticker": t, "close": float(c.iloc[-1]),
+            "dist200": float(dist.iloc[-1]), "dist200_pctile": pct_rank(dist),
+            "state": "golden" if sma50.iloc[-1] > sma200.iloc[-1] else "death",
+            "r1m": ret(c, 21), "r3m": ret(c, 63), "r6m": r6, "r12m": ret(c, 252),
+            "volmom": (r6 / vol) if (r6 is not None and vol) else None,
+            "rsi": float(rsi(c).iloc[-1]), "rsi_pctile": pct_rank(rsi(c)),
+            "asof": c.index[-1].strftime("%Y-%m-%d"),
+        })
+    return rows
+
+
+def risk_on(px):
+    def ratio(a, b):
+        return (px[a]["Close"] / px[b]["Close"]).dropna() if a in px and b in px else None
+
+    comps = [
+        ("Cyclicals vs Defensives (XLY/XLP)", ratio("XLY", "XLP"), +1, "Higher = risk-on"),
+        ("High Yield vs Treasuries (HYG/IEF)", ratio("HYG", "IEF"), +1, "Higher = credit risk appetite"),
+        ("Equal vs Cap-weight (RSP/SPY)", ratio("RSP", "SPY"), +1, "Higher = broader participation"),
+        ("VIX level", px["^VIX"]["Close"] if "^VIX" in px else None, -1, "Lower = calmer"),
+        ("VIX / VIX3M term structure", ratio("^VIX", "^VIX3M"), -1, ">1 = stress (backwardation)"),
+        ("Copper vs Gold (CPER/GLD)", ratio("CPER", "GLD"), +1, "Higher = growth optimism"),
+    ]
+    z_cols, items = {}, []
+    for name, s, sign, desc in comps:
+        if s is None or len(s) < 150:
+            continue
+        z = (s - s.rolling(252, min_periods=120).mean()) / s.rolling(252, min_periods=120).std()
+        z = (z * sign).clip(-3, 3)
+        z_cols[name] = z
+        items.append({"name": name, "z": float(z.dropna().iloc[-1]), "desc": desc,
+                      "value": float(s.iloc[-1])})
+    if not z_cols:
+        return {"score": None, "components": [], "history": {"dates": [], "values": []}}, pd.Series(dtype=float)
+    zdf = pd.concat(z_cols, axis=1).ffill(limit=3)
+    comp = zdf.mean(axis=1, skipna=True).dropna()
+    score = (50 + comp * 25).clip(0, 100)
+    hist = score.tail(252)
+    return {
+        "score": float(score.iloc[-1]), "components": items,
+        "history": {"dates": _dates(hist.index), "values": _list(hist, 1)},
+    }, score
+
+
+# --------------------------------------------------------------------------
+# Panel 3 - Correlation
+# --------------------------------------------------------------------------
+def correlation(px):
+    cl = closes(px, CORR).ffill(limit=3)
+    # 2-day log returns reduce the time-zone mismatch between Asian/European
+    # and US closes (they would otherwise look de-correlated).
+    lr = np.log(cl).diff(2).dropna()
+    if len(lr) < 120 or lr.shape[1] < 3:
+        return None, pd.Series(dtype=float)
+
+    c20 = lr.tail(20).corr()
+    c90 = lr.tail(90).corr()
+
+    order = list(c90.columns)
+    try:
+        from scipy.cluster.hierarchy import leaves_list, linkage
+        from scipy.spatial.distance import squareform
+
+        dist = np.sqrt(0.5 * (1 - c90.values.clip(-1, 1)))
+        np.fill_diagonal(dist, 0)
+        order = [c90.columns[i] for i in leaves_list(linkage(squareform(dist, checks=False), "average"))]
+    except Exception:
+        pass
+
+    def avg_pair(m):
+        v = m.values[np.triu_indices_from(m.values, k=1)]
+        return float(np.nanmean(v))
+
+    start = max(20, len(lr) - 252)
+    dates, vals = [], []
+    for i in range(start, len(lr) + 1):
+        w = lr.iloc[i - 20:i]
+        dates.append(w.index[-1])
+        vals.append(avg_pair(w.corr()))
+    avg = pd.Series(vals, index=dates)
+
+    def mat(m):
+        m = m.loc[order, order]
+        return [[None if pd.isna(x) else round(float(x), 3) for x in row] for row in m.values]
+
+    diff = (c20 - c90)
+    return {
+        "labels": order, "c20": mat(c20), "c90": mat(c90), "diff": mat(diff),
+        "avg": {
+            "dates": _dates(avg.index), "values": _list(avg, 3),
+            "current": float(avg.iloc[-1]), "pctile": pct_rank(avg),
+            "avg20": avg_pair(c20), "avg90": avg_pair(c90),
+        },
+    }, avg
+
+
+# --------------------------------------------------------------------------
+# Panel 4 - Sectors
+# --------------------------------------------------------------------------
+def sectors(px):
+    cl = closes(px, {**SECTORS, "SPY": "SPY"}).ffill(limit=3)
+    if "SPY" not in cl or cl.shape[1] < 4:
+        return None
+    names = [n for n in SECTORS if n in cl.columns]
+
+    returns = {"labels": names}
+    for key, n in (("1W", 5), ("1M", 21), ("3M", 63)):
+        returns[key] = [ret(cl[nm].dropna(), n) for nm in names]
+
+    weekly = cl.resample("W-FRI").last().dropna(how="all")
+    wr = weekly.pct_change().dropna(how="all").tail(52)
+    spy = wr["SPY"]
+    beta = []
+    for nm in names:
+        y = wr[nm]
+        d = pd.concat([spy, y], axis=1).dropna()
+        d.columns = ["x", "y"]
+        n = len(d)
+        if n < 26:
+            continue
+        slope, icpt = np.polyfit(d["x"], d["y"], 1)
+        resid = d["y"] - (slope * d["x"] + icpt)
+        se = math.sqrt(resid.var(ddof=2) / (d["x"].var(ddof=1) * (n - 1)))
+        r2 = float(np.corrcoef(d["x"], d["y"])[0, 1] ** 2)
+        down = d[d["x"] < 0]
+        dbeta = float(np.polyfit(down["x"], down["y"], 1)[0]) if len(down) >= 8 else None
+        beta.append({
+            "name": nm, "ticker": SECTORS[nm], "raw": float(slope),
+            "blume": float(0.67 * slope + 0.33), "downside": dbeta,
+            "r2": r2, "ci": float(1.96 * se * 0.67), "n": int(n),
+        })
+
+    # Relative Rotation Graph (weekly, 26w baseline)
+    w2 = cl.resample("W-FRI").last().dropna(how="all").tail(130)
+    rrg = []
+    for nm in names:
+        rs = (w2[nm] / w2["SPY"]).dropna()
+        if len(rs) < 40:
+            continue
+        ratio = 100 * rs / rs.rolling(26).mean()
+        mom = 100 * ratio / ratio.shift(4)
+        d = pd.concat([ratio, mom], axis=1).dropna().tail(8)
+        if d.empty:
+            continue
+        x, y = d.iloc[:, 0], d.iloc[:, 1]
+        quad = ("Leading" if x.iloc[-1] >= 100 and y.iloc[-1] >= 100 else
+                "Weakening" if x.iloc[-1] >= 100 else
+                "Improving" if y.iloc[-1] >= 100 else "Lagging")
+        rrg.append({"name": nm, "ticker": SECTORS[nm], "x": _list(x, 2), "y": _list(y, 2), "quadrant": quad})
+
+    return {"returns": returns, "beta": beta, "rrg": rrg}
+
+
+# --------------------------------------------------------------------------
+# Panel 6 - Multi-index performance
+# --------------------------------------------------------------------------
+def multi(px, lookback=126):
+    cl = closes(px, GLOBAL).ffill(limit=3).tail(lookback)
+    if cl.empty:
+        return None
+    norm = cl.apply(lambda s: s / s.dropna().iloc[0] * 100 if s.notna().any() else s)
+    out = {"dates": _dates(norm.index), "series": {}, "rs": {}}
+    bench = norm.get(BENCH_NAME)
+    for n in norm.columns:
+        out["series"][n] = _list(norm[n], 2)
+        if bench is not None:
+            out["rs"][n] = _list(norm[n] / bench * 100, 2)
+    return out
+
+
+# --------------------------------------------------------------------------
+# Panel 5 - Scorecard, regime, flags
+# --------------------------------------------------------------------------
+def band(score):
+    return "good" if score >= 60 else "mid" if score >= 40 else "bad"
+
+
+def scorecard(px, ro_score, ro_data, avg_corr, sec_closes):
+    spy = px[PRIMARY]["Close"]
+    sma50, sma200 = spy.rolling(50).mean(), spy.rolling(200).mean()
+    dist = (spy / sma200 - 1) * 100
+
+    trend = 50 * (spy.iloc[-1] > sma200.iloc[-1]) + 25 * (sma50.iloc[-1] > sma200.iloc[-1]) + 25 * (spy.iloc[-1] > sma50.iloc[-1])
+    r63 = spy.pct_change(63).dropna()
+    mom = pct_rank(r63, n=756) or 50
+
+    vix = px["^VIX"]["Close"] if "^VIX" in px else None
+    if vix is not None and len(vix) > 100:
+        vix_p = pct_rank(vix)
+        vol_score, vol_txt, vol_series = 100 - vix_p, f"VIX {vix.iloc[-1]:.1f} · {vix_p:.0f}th pct", vix.tail(120)
+    else:
+        a = atr_pct(px[PRIMARY])
+        vix_p = pct_rank(a)
+        vol_score, vol_txt, vol_series = 100 - vix_p, f"ATR% {a.iloc[-1]:.2f} · {vix_p:.0f}th pct", a.tail(120)
+
+    b50 = (sec_closes > sec_closes.rolling(50).mean()).mean(axis=1) * 100
+    b200 = (sec_closes > sec_closes.rolling(200).mean()).mean(axis=1) * 100
+    breadth_s = ((b50 + b200) / 2).dropna()
+    breadth = float(breadth_s.iloc[-1]) if len(breadth_s) else 50.0
+
+    if len(avg_corr):
+        cp = pct_rank(avg_corr)
+        div_score = 100 - (cp if cp is not None else 50)
+        div_txt = f"Avg corr {avg_corr.iloc[-1]:.2f} · {cp:.0f}th pct" if cp is not None else f"Avg corr {avg_corr.iloc[-1]:.2f}"
+        div_series = avg_corr.tail(120)
+    else:
+        div_score, div_txt, div_series = 50, "n/a", pd.Series(dtype=float)
+
+    ro = ro_score.dropna() if len(ro_score) else pd.Series(dtype=float)
+    ro_val = float(ro.iloc[-1]) if len(ro) else 50.0
+
+    comps = [
+        {"key": "trend", "name": "Trend", "score": float(trend),
+         "text": f"{PRIMARY} {dist.iloc[-1]:+.1f}% vs 200D", "series": _list(dist.tail(120), 2),
+         "note": "Price vs 200D and 50D moving averages"},
+        {"key": "momentum", "name": "Momentum", "score": float(mom),
+         "text": f"3M return {ret(spy, 63):+.1f}%", "series": _list(spy.tail(120), 2),
+         "note": "3-month return percentile vs 3 years"},
+        {"key": "volatility", "name": "Volatility", "score": float(vol_score), "text": vol_txt,
+         "series": _list(vol_series, 2), "note": "Calm = high score (inverse percentile of VIX)"},
+        {"key": "breadth", "name": "Breadth", "score": breadth,
+         "text": f"{b50.iloc[-1]:.0f}% sectors > 50D · {b200.iloc[-1]:.0f}% > 200D",
+         "series": _list(breadth_s.tail(120), 1), "note": "Share of S&P sectors above their moving averages"},
+        {"key": "diversification", "name": "Diversification", "score": float(div_score),
+         "text": div_txt, "series": _list(div_series, 3),
+         "note": "Rising average correlation = diversification failing"},
+        {"key": "riskon", "name": "Risk Appetite", "score": ro_val,
+         "text": f"{len(ro_data.get('components', []))} cross-asset ratios",
+         "series": _list(ro.tail(120), 1), "note": "Composite of cross-asset risk ratios"},
+    ]
+    for c in comps:
+        c["band"] = band(c["score"])
+    composite = float(np.mean([c["score"] for c in comps]))
+    label = "Risk-On" if composite >= 62 else "Neutral" if composite >= 45 else "Risk-Off"
+
+    # Regime: simple, transparent rules
+    above200 = spy.iloc[-1] > sma200.iloc[-1]
+    golden = sma50.iloc[-1] > sma200.iloc[-1]
+    stressed = vix_p is not None and vix_p >= 80
+    if above200 and golden:
+        regime = ("Uptrend · stressed" if stressed else "Uptrend", "bull" if not stressed else "mid")
+    elif (not above200) and (not golden):
+        regime = ("Downtrend", "bear")
+    else:
+        regime = ("Transition", "mid")
+    detail = (f"{PRIMARY} {'above' if above200 else 'below'} 200D, "
+              f"50D {'above' if golden else 'below'} 200D, VIX percentile "
+              f"{'n/a' if vix_p is None else f'{vix_p:.0f}'}")
+    return {
+        "composite": composite, "label": label, "components": comps,
+    }, {"label": regime[0], "tone": regime[1], "detail": detail}, vix_p, dist
+
+
+def build_flags(px, sc, quant, ro, corr_data, vix_p, missing, asof):
+    flags = []
+
+    def add(tier, level, title, imp):
+        flags.append({"tier": tier, "level": level, "title": title, "implication": imp})
+
+    if vix_p is not None and vix_p >= 85:
+        add("Market risk", "high", f"Volatility very high (VIX {vix_p:.0f}th percentile)",
+            "Moves are larger than usual. Position sizes that were normal can carry much more risk.")
+    elif vix_p is not None and vix_p >= 70:
+        add("Market risk", "med", f"Volatility elevated (VIX {vix_p:.0f}th percentile)",
+            "Expect wider swings than the past year's norm.")
+    for c in ro.get("components", []):
+        if "term structure" in c["name"] and c["value"] > 1:
+            add("Market risk", "high", "VIX term structure inverted",
+                "Near-term fear exceeds longer-term fear, which tends to appear in sharp sell-offs.")
+    if corr_data:
+        p = corr_data["avg"]["pctile"]
+        if p is not None and p >= 85:
+            add("Market risk", "high", f"Correlations spiking ({p:.0f}th percentile)",
+                "Assets are moving together, so diversification is weaker than it looks.")
+        elif p is not None and p >= 70:
+            add("Market risk", "med", f"Correlations rising ({p:.0f}th percentile)",
+                "Diversification benefit is shrinking.")
+    comp = {c["key"]: c for c in sc["components"]}
+    if comp["trend"]["score"] <= 25:
+        add("Market risk", "high", "Primary asset in a downtrend",
+            "Below both key moving averages. Trend-following approaches are on the sidelines.")
+    spy_stats = quant["tickers"].get(PRIMARY, {}).get("stats", {})
+    if comp["breadth"]["score"] < 40 and spy_stats.get("dist200", 0) > 0:
+        add("Market risk", "med", "Breadth divergence",
+            "The index is above its 200D average but most sectors are not. Rallies like this can be fragile.")
+    if spy_stats.get("atr_pctile") and spy_stats["atr_pctile"] >= 85:
+        add("Market risk", "med", "Daily range unusually wide",
+            "ATR% is in the top 15% of the last year.")
+    if spy_stats.get("squeeze"):
+        add("Market risk", "low", "Bollinger squeeze",
+            "Volatility is unusually compressed, which often precedes a larger move (direction unknown).")
+
+    # Signal quality
+    add("Signal quality", "low", "Sentiment layer not included",
+        "Scores here use market data only. News/GDELT sentiment is unvalidated and kept out of the score.")
+
+    # Data quality
+    age = (pd.Timestamp.now("UTC").tz_localize(None).normalize() - pd.Timestamp(asof)).days
+    if age > 4:
+        add("Data quality", "high", f"Latest price data is {age} days old",
+            "Check the data-refresh workflow.")
+    if missing:
+        add("Data quality", "med", f"{len(missing)} ticker(s) failed to download",
+            ", ".join(missing[:8]) + ("…" if len(missing) > 8 else ""))
+    return flags
+
+
+# --------------------------------------------------------------------------
+# Orchestration
+# --------------------------------------------------------------------------
+def compute(px, sample=False):
+    if PRIMARY not in px:
+        raise RuntimeError(f"{PRIMARY} data missing - aborting so existing data is kept.")
+    missing = [t for t in ALL_TICKERS if t not in px]
+
+    quant = {"default": PRIMARY, "tickers": {t: quant_for(px[t]) for t in QUANT_TICKERS if t in px}}
+    gtable = global_table(px)
+    ro_data, ro_series = risk_on(px)
+    corr_data, avg_corr = correlation(px)
+    sec_data = sectors(px)
+    multi_data = multi(px)
+
+    sec_cl = closes(px, SECTORS).ffill(limit=3)
+    sc, regime, vix_p, _ = scorecard(px, ro_series, ro_data, avg_corr, sec_cl)
+
+    spy = px[PRIMARY]["Close"]
+    asof = spy.index[-1].strftime("%Y-%m-%d")
+    flags = build_flags(px, sc, quant, ro_data, corr_data, vix_p, missing, asof)
+
+    return {
+        "meta": {
+            "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            "asof": asof, "sample": bool(sample), "missing": missing, "version": 1,
+        },
+        "headline": {
+            "ticker": PRIMARY, "close": float(spy.iloc[-1]),
+            "chg1d": float((spy.iloc[-1] / spy.iloc[-2] - 1) * 100),
+            "rsi": float(rsi(spy).iloc[-1]),
+        },
+        "regime": regime, "scorecard": sc, "flags": flags,
+        "multi": multi_data, "quant": quant, "globaltable": gtable,
+        "riskon": ro_data, "corr": corr_data, "sectors": sec_data,
+    }
+
+
+def append_signal_log(data):
+    path = DATA_DIR / "signal_log.csv"
+    row = {
+        "date": data["meta"]["asof"], "composite": round(data["scorecard"]["composite"], 1),
+        "label": data["scorecard"]["label"], "regime": data["regime"]["label"],
+        "spy_close": round(data["headline"]["close"], 2),
+    }
+    for c in data["scorecard"]["components"]:
+        row[c["key"]] = round(c["score"], 1)
+    new = pd.DataFrame([row])
+    if path.exists():
+        old = pd.read_csv(path)
+        old = old[old["date"] != row["date"]]
+        new = pd.concat([old, new], ignore_index=True)
+    new.sort_values("date").to_csv(path, index=False)
+
+
+def write(data):
+    DATA_DIR.mkdir(exist_ok=True)
+    payload = _clean(data)
+    (DATA_DIR / "pulse.json").write_text(json.dumps(payload, separators=(",", ":")))
+    (DATA_DIR / "pulse.js").write_text(
+        "window.PULSE_DATA = " + json.dumps(payload, separators=(",", ":")) + ";\n"
+    )
+
+
+def main():
+    sample = "--sample" in sys.argv
+    if sample:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from make_sample import make_sample
+        px = make_sample(ALL_TICKERS)
+    else:
+        px = download(ALL_TICKERS)
+        print(f"Downloaded {len(px)}/{len(ALL_TICKERS)} tickers")
+    data = compute(px, sample=sample)
+    write(data)
+    if not sample:
+        append_signal_log(data)
+    print(f"OK  as-of {data['meta']['asof']}  composite {data['scorecard']['composite']:.1f} "
+          f"({data['scorecard']['label']})  missing={len(data['meta']['missing'])}")
+
+
+if __name__ == "__main__":
+    main()
