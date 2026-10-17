@@ -133,22 +133,59 @@ def closes(px, mapping):
 # --------------------------------------------------------------------------
 # Download
 # --------------------------------------------------------------------------
+# Fallbacks tried (in order) when a ticker fails in the batch download.
+# KSA (iShares MSCI Saudi Arabia ETF) is a proxy for Tadawul if Yahoo has no index feed.
+ALTERNATES = {"^TASI.SR": ["TASI.SR", "^TASI.SR", "KSA"]}
+ALIASES_USED = {}
+
+
+def _history(sym, period="3y", tries=3):
+    import time
+    import yfinance as yf
+
+    for i in range(tries):
+        try:
+            df = yf.Ticker(sym).history(period=period, interval="1d", auto_adjust=True)
+            df = df[["Open", "High", "Low", "Close", "Volume"]].dropna(subset=["Close"])
+            if len(df) > 60:
+                df.index = pd.to_datetime(df.index).tz_localize(None).normalize()
+                return df
+        except Exception:
+            pass
+        time.sleep(2 * (i + 1))
+    return None
+
+
 def download(tickers, period="3y"):
     import yfinance as yf
 
-    raw = yf.download(
-        tickers, period=period, interval="1d", auto_adjust=True,
-        group_by="ticker", progress=False, threads=True,
-    )
     out = {}
+    try:
+        raw = yf.download(
+            tickers, period=period, interval="1d", auto_adjust=True,
+            group_by="ticker", progress=False, threads=True,
+        )
+        for t in tickers:
+            try:
+                df = raw[t][["Open", "High", "Low", "Close", "Volume"]].dropna(subset=["Close"])
+                if len(df) > 60:
+                    out[t] = df
+            except Exception:
+                continue
+    except Exception as e:
+        print("batch download failed:", e)
+    # second chance: one-by-one with retries, then alternates
     for t in tickers:
-        try:
-            df = raw[t][["Open", "High", "Low", "Close", "Volume"]]
-            df = df.dropna(subset=["Close"])
-            if len(df) > 60:
-                out[t] = df
-        except Exception:
+        if t in out:
             continue
+        for sym in ALTERNATES.get(t, [t]) if t in ALTERNATES else [t, t]:
+            df = _history(sym)
+            if df is not None:
+                out[t] = df
+                if sym != t:
+                    ALIASES_USED[t] = sym
+                    print(f"{t}: using {sym} instead")
+                break
     return out
 
 
@@ -559,7 +596,7 @@ def compute(px, sample=False):
     return {
         "meta": {
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-            "asof": asof, "sample": bool(sample), "missing": missing, "version": 1,
+            "asof": asof, "sample": bool(sample), "missing": missing, "aliases": ALIASES_USED, "version": 1,
         },
         "headline": {
             "ticker": PRIMARY, "close": float(spy.iloc[-1]),

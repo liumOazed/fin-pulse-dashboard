@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pulse Dashboard</title>
 <link rel="stylesheet" href="assets/style.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js"></script>
 </head>
 <body>
 <header class="top">
@@ -32,6 +31,25 @@
 <script src="assets/panels/corr.js"></script>
 <script src="assets/panels/sectors.js"></script>
 <script src="assets/panels/multi.js"></script>
-<script>Pulse.start();</script>
+<script>
+/* Load Plotly: local copy first (added by the workflow), then CDNs as fallback. */
+(function () {
+  var srcs = ["assets/vendor/plotly.min.js",
+    "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js",
+    "https://unpkg.com/plotly.js-dist-min@2.35.2/plotly.min.js",
+    "https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js"];
+  function next(i) {
+    if (window.Plotly) return Pulse.start();
+    if (i >= srcs.length) {
+      document.getElementById("panels").innerHTML = '<div class="card bad">Could not load the Plotly charting library (tried local copy and 3 CDNs). Check your connection or ad-blocker.</div>';
+      return;
+    }
+    var s = document.createElement("script");
+    s.src = srcs[i]; s.onload = function () { next(i + 1); }; s.onerror = function () { next(i + 1); };
+    document.head.appendChild(s);
+  }
+  next(0);
+})();
+</script>
 </body>
 </html>

@@ -42,6 +42,7 @@
       document.getElementById('meta').textContent = `As of ${m.asof} · built ${m.generated_at}`;
       const b = document.getElementById('banner'), msgs = [];
       if (m.sample) msgs.push('SAMPLE DATA - synthetic numbers for layout preview. Run the "Update data & deploy" workflow to load real prices.');
+      if (m.aliases) Object.keys(m.aliases).forEach(k => msgs.push(k + ' unavailable - using proxy ' + m.aliases[k]));
       if (m.missing && m.missing.length) msgs.push('Missing tickers: ' + m.missing.join(', '));
       if (msgs.length) { b.hidden = false; b.textContent = msgs.join('  |  '); }
       const draw = () => {
