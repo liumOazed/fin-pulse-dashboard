@@ -5,7 +5,7 @@ Pulse.register({
     const P = Pulse, rows = d.markets || [];
     if (!rows.length) { el.innerHTML = '<div class="muted small">Market data not available yet. Run the data workflow to load it.</div>'; return; }
     st.win = st.win || 63;
-    tools.appendChild(P.seg([[21, '1M'], [63, '3M'], [252, '1Y']], st.win, v => { st.win = v; draw(); }));
+    tools.appendChild(P.seg([[5, '1W'], [21, '1M'], [63, '3M'], [252, '1Y']], st.win, v => { st.win = v; draw(); }));
 
     const num = (v, dp = 2) => v == null ? '–' : Number(v).toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
     const signed = (v, dp = 2, s = '') => v == null ? '–' : (v > 0 ? '+' : v < 0 ? '−' : '') + num(Math.abs(v), dp) + s;
@@ -50,7 +50,7 @@ Pulse.register({
       <div class="mk-ends"><span>${num(lo, dp)}</span><span>${num(hi, dp)}</span></div></div>`;
 
     function draw() {
-      const per = { 21: '1M', 63: '3M', 252: '1Y' }[st.win];
+      const per = { 5: '1W', 21: '1M', 63: '3M', 252: '1Y' }[st.win];
       el.innerHTML = '<div class="mk-grid">' + rows.map(m => {
         const s = status(m), sp = spark(m, m.key), c = P.dir(m.chg_pct);
         return `<article class="mk" data-key="${m.key}">
