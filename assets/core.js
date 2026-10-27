@@ -14,6 +14,15 @@
     data: D, css, TABS,
     register(p) { p.state = p.state || {}; panels.push(p); },
 
+    /* Shared market selection: the Live signal panel and the market cards follow it */
+    pick: null,
+    select(key, scroll) {
+      Pulse.pick = key;
+      document.querySelectorAll('.mk[data-key]').forEach(c => c.classList.toggle('sel', c.dataset.key === key));
+      if (Pulse.onPick) Pulse.onPick();
+      if (scroll) { const p = document.getElementById('panel-scorecard'); if (p) p.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    },
+
     fmt: (v, d = 1, s = '') => num(v) ? Number(v).toFixed(d) + s : '–',
     sgn: (v, d = 1, s = '%') => num(v) ? (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(d) + s : '–',
     dir: v => num(v) ? (v > 0 ? 'up' : v < 0 ? 'down' : '') : '',

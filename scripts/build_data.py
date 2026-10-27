@@ -528,6 +528,67 @@ def regimes(px, ro_series):
 
 
 # --------------------------------------------------------------------------
+# Panel 1c - Live signal per market (market-specific scores + regime)
+# --------------------------------------------------------------------------
+def comp_label(score):
+    return "Risk-On" if score >= 62 else "Neutral" if score >= 45 else "Risk-Off"
+
+
+def market_signals(px, regime_data, sc):
+    vix = px["^VIX"]["Close"] if "^VIX" in px else None
+    regs = {m["key"]: m for m in (regime_data or {}).get("markets", [])}
+    out = []
+    for m in MARKETS:
+        t = m["ticker"]
+        if t not in px or len(px[t]) < 210:
+            continue
+        c = px[t]["Close"].dropna()
+        sma50, sma200 = c.rolling(50).mean(), c.rolling(200).mean()
+        dist = (c / sma200 - 1) * 100
+        trend = 50 * (c.iloc[-1] > sma200.iloc[-1]) + 25 * (sma50.iloc[-1] > sma200.iloc[-1]) + 25 * (c.iloc[-1] > sma50.iloc[-1])
+        mom = pct_rank(c.pct_change(63).dropna(), n=756) or 50
+        if m["key"] in US_MARKETS and vix is not None and len(vix) > 100:
+            vp, vser = pct_rank(vix), vix
+            vtxt = f"VIX {vix.iloc[-1]:.1f} · {vp:.0f}th pct"
+        else:
+            vser = c.pct_change().rolling(21).std() * math.sqrt(252) * 100
+            vp = pct_rank(vser)
+            vtxt = f"21D vol {vser.iloc[-1]:.1f}% · {vp:.0f}th pct" if vp is not None else "n/a"
+        comps = [
+            {"key": "trend", "name": "Trend", "score": float(trend),
+             "text": f"{dist.iloc[-1]:+.1f}% vs 200D", "series": _list(dist.tail(120), 2),
+             "note": "Price vs 200D and 50D moving averages"},
+            {"key": "momentum", "name": "Momentum", "score": float(mom),
+             "text": f"3M return {ret(c, 63):+.1f}%", "series": _list(c.tail(120), 2),
+             "note": "3-month return percentile vs 3 years"},
+            {"key": "volatility", "name": "Volatility", "score": float(100 - (vp if vp is not None else 50)),
+             "text": vtxt, "series": _list(vser.tail(120), 2),
+             "note": "Calm = high score (inverse percentile of volatility)"},
+        ]
+        rg = regs.get(m["key"])
+        if rg:
+            h = rg["history"]
+            comps.append({
+                "key": "regime", "name": "Regime", "score": 50 + 50 * (rg["probs"]["bull"] - rg["probs"]["bear"]),
+                "text": f"{rg['agree']} of {rg['n_models']} models agree",
+                "series": [round(50 + 50 * (b - e), 1) for b, e in zip(h["bull"][-120:], h["bear"][-120:])],
+                "note": "50 + 50 x (P(bull) - P(bear)) from the regime consensus"})
+        for x in comps:
+            x["band"] = band(x["score"])
+        composite = float(np.mean([x["score"] for x in comps]))
+        out.append({
+            "key": m["key"], "name": m["name"], "ticker": t, "proxy": ALIASES_USED.get(t),
+            "close": float(c.iloc[-1]), "chg1d": float((c.iloc[-1] / c.iloc[-2] - 1) * 100),
+            "rsi": float(rsi(c).iloc[-1]), "asof": c.index[-1].strftime("%Y-%m-%d"),
+            "components": comps, "composite": composite, "label": comp_label(composite),
+        })
+    by_key = {x["key"]: x for x in sc["components"]}
+    glob = [{**by_key[k], "name": n} for k, n in (("riskon", "Risk appetite"), ("diversification", "Diversification"),
+                                                   ("breadth", "US sector breadth")) if k in by_key]
+    return {"markets": out, "global": glob}
+
+
+# --------------------------------------------------------------------------
 # Panel 5 - Scorecard, regime, flags
 # --------------------------------------------------------------------------
 def band(score):
@@ -590,7 +651,7 @@ def scorecard(px, ro_score, ro_data, avg_corr, sec_closes):
     for c in comps:
         c["band"] = band(c["score"])
     composite = float(np.mean([c["score"] for c in comps]))
-    label = "Risk-On" if composite >= 62 else "Neutral" if composite >= 45 else "Risk-Off"
+    label = comp_label(composite)
 
     # Regime: simple, transparent rules
     above200 = spy.iloc[-1] > sma200.iloc[-1]
@@ -683,6 +744,7 @@ def compute(px, sample=False):
 
     sec_cl = closes(px, SECTORS).ffill(limit=3)
     sc, regime, vix_p, _ = scorecard(px, ro_series, ro_data, avg_corr, sec_cl)
+    signals = market_signals(px, regime_data, sc)
 
     spy = px[PRIMARY]["Close"]
     asof = spy.index[-1].strftime("%Y-%m-%d")
@@ -699,7 +761,7 @@ def compute(px, sample=False):
             "rsi": float(rsi(spy).iloc[-1]),
         },
         "regime": regime, "scorecard": sc, "flags": flags, "markets": markets_data,
-        "regimes": regime_data,
+        "regimes": regime_data, "signals": signals,
         "multi": multi_data, "quant": quant, "globaltable": gtable,
         "riskon": ro_data, "corr": corr_data, "sectors": sec_data,
     }
