@@ -166,7 +166,7 @@ PROXY_CCY = {"KSA": "USD", "UAE": "USD"}
 ALIASES_USED = {}
 
 
-def _history(sym, period="3y", tries=3):
+def _history(sym, period="10y", tries=3):
     import time
     import yfinance as yf
 
@@ -183,7 +183,7 @@ def _history(sym, period="3y", tries=3):
     return None
 
 
-def download(tickers, period="3y"):
+def download(tickers, period="10y"):
     import yfinance as yf
 
     out = {}
@@ -206,7 +206,7 @@ def download(tickers, period="3y"):
         if t in out:
             continue
         for sym in ALTERNATES.get(t, [t]) if t in ALTERNATES else [t, t]:
-            df = _history(sym)
+            df = _history(sym, period)
             if df is not None:
                 out[t] = df
                 if sym != t:
@@ -497,6 +497,37 @@ def markets(px):
 
 
 # --------------------------------------------------------------------------
+# Panel 1b - Regime ensemble for every market card
+# --------------------------------------------------------------------------
+US_MARKETS = {"spx", "ixic"}
+
+
+def regimes(px, ro_series):
+    from regime import detect
+
+    vix_ratio = None
+    if "^VIX" in px and "^VIX3M" in px:
+        vix_ratio = (px["^VIX"]["Close"] / px["^VIX3M"]["Close"]).dropna()
+    out = []
+    for m in MARKETS:
+        t = m["ticker"]
+        if t not in px:
+            continue
+        try:
+            r = detect(px[t]["Close"], ro_series, vix_ratio, us=m["key"] in US_MARKETS)
+        except Exception as e:
+            print(f"regime {t} failed: {e}")
+            continue
+        if r is None:
+            continue
+        proxy = ALIASES_USED.get(t)
+        out.append({"key": m["key"], "name": m["name"], "ticker": t, "proxy": proxy,
+                    "reliable": proxy is None and r["n_obs"] >= 1500, **r})
+    counts = {s: sum(x["label"] == s for x in out) for s in ("bull", "neutral", "bear")}
+    return {"markets": out, "counts": counts}
+
+
+# --------------------------------------------------------------------------
 # Panel 5 - Scorecard, regime, flags
 # --------------------------------------------------------------------------
 def band(score):
@@ -648,6 +679,7 @@ def compute(px, sample=False):
     sec_data = sectors(px)
     multi_data = multi(px)
     markets_data = markets(px)
+    regime_data = regimes(px, ro_series)
 
     sec_cl = closes(px, SECTORS).ffill(limit=3)
     sc, regime, vix_p, _ = scorecard(px, ro_series, ro_data, avg_corr, sec_cl)
@@ -667,6 +699,7 @@ def compute(px, sample=False):
             "rsi": float(rsi(spy).iloc[-1]),
         },
         "regime": regime, "scorecard": sc, "flags": flags, "markets": markets_data,
+        "regimes": regime_data,
         "multi": multi_data, "quant": quant, "globaltable": gtable,
         "riskon": ro_data, "corr": corr_data, "sectors": sec_data,
     }
@@ -681,6 +714,9 @@ def append_signal_log(data):
     }
     for c in data["scorecard"]["components"]:
         row[c["key"]] = round(c["score"], 1)
+    for m in (data.get("regimes") or {}).get("markets", []):
+        row[f"reg_{m['key']}"] = m["label"]
+        row[f"regp_{m['key']}"] = round(m["probs"][m["label"]], 3)
     new = pd.DataFrame([row])
     if path.exists():
         old = pd.read_csv(path)
