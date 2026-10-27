@@ -85,7 +85,8 @@
       document.getElementById('meta').textContent = `Data as of ${m.asof} · updated ${m.generated_at}`;
       const notes = [];
       if (m.sample) notes.push('Sample data: synthetic numbers for layout preview. Run the “Update data & deploy” workflow to load real prices.');
-      if (m.aliases) Object.keys(m.aliases).forEach(k => notes.push(`Tadawul (${k}) has no Yahoo feed today, so it is shown using the ${m.aliases[k]} ETF as a proxy.`));
+      const nameOf = t => ((D.markets || []).find(x => x.ticker === t) || { name: t }).name;
+      if (m.aliases) Object.keys(m.aliases).forEach(k => notes.push(`${nameOf(k)} (${k}) has no Yahoo feed today, so it is shown using the ${m.aliases[k]} ETF as a proxy.`));
       if (m.missing && m.missing.length) notes.push('Unavailable: ' + m.missing.join(', '));
       const nb = document.getElementById('notice');
       if (notes.length) { nb.hidden = false; nb.innerHTML = notes.join('<br>'); }

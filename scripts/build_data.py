@@ -58,6 +58,17 @@ MARKETS = [
      "tz": "Asia/Tokyo", "ccy": "JPY", "sessions": [["09:00", "11:30"], ["12:30", "15:30"]]},
     {"key": "hsi", "name": "Hang Seng", "ticker": "^HSI", "exchange": "HKEX", "city": "Hong Kong",
      "tz": "Asia/Hong_Kong", "ccy": "HKD", "sessions": [["09:30", "12:00"], ["13:00", "16:00"]]},
+    {"key": "n100", "name": "Euronext 100", "ticker": "^N100", "exchange": "Euronext", "city": "Paris",
+     "tz": "Europe/Paris", "ccy": "EUR", "sessions": [["09:00", "17:30"]]},
+    {"key": "tasi", "name": "Tadawul All Share", "ticker": "^TASI.SR", "exchange": "Tadawul", "city": "Riyadh",
+     "tz": "Asia/Riyadh", "ccy": "SAR", "sessions": [["10:00", "15:00"]],
+     "days": ["Sun", "Mon", "Tue", "Wed", "Thu"]},
+    {"key": "adx", "name": "FTSE ADX General", "ticker": "FADGI.FGI", "exchange": "ADX", "city": "Abu Dhabi",
+     "tz": "Asia/Dubai", "ccy": "AED", "sessions": [["10:00", "15:00"]]},
+    {"key": "nifty", "name": "Nifty 50", "ticker": "^NSEI", "exchange": "NSE", "city": "Mumbai",
+     "tz": "Asia/Kolkata", "ccy": "INR", "sessions": [["09:15", "15:30"]]},
+    {"key": "sti", "name": "Straits Times Index", "ticker": "^STI", "exchange": "SGX", "city": "Singapore",
+     "tz": "Asia/Singapore", "ccy": "SGD", "sessions": [["09:00", "12:00"], ["13:00", "17:00"]]},
 ]
 
 SECTORS = {
@@ -81,7 +92,7 @@ RISK_EXTRA = ["XLY", "XLP", "HYG", "IEF", "RSP", "SPY", "^VIX", "^VIX3M", "CPER"
 
 ALL_TICKERS = sorted(
     set(GLOBAL.values()) | set(SECTORS.values()) | set(QUANT_TICKERS)
-    | set(CORR.values()) | set(RISK_EXTRA) | {PRIMARY}
+    | set(CORR.values()) | set(RISK_EXTRA) | {m["ticker"] for m in MARKETS} | {PRIMARY}
 )
 
 
@@ -149,8 +160,9 @@ def closes(px, mapping):
 # Download
 # --------------------------------------------------------------------------
 # Fallbacks tried (in order) when a ticker fails in the batch download.
-# KSA (iShares MSCI Saudi Arabia ETF) is a proxy for Tadawul if Yahoo has no index feed.
-ALTERNATES = {"^TASI.SR": ["TASI.SR", "^TASI.SR", "KSA"]}
+# KSA / UAE (iShares MSCI country ETFs, USD) stand in for Tadawul / ADX when Yahoo has no index feed.
+ALTERNATES = {"^TASI.SR": ["TASI.SR", "^TASI.SR", "KSA"], "FADGI.FGI": ["FADGI.FGI", "UAE"]}
+PROXY_CCY = {"KSA": "USD", "UAE": "USD"}
 ALIASES_USED = {}
 
 
@@ -465,8 +477,11 @@ def markets(px):
         ytd = c[c.index >= pd.Timestamp(year=c.index[-1].year, month=1, day=1)]
         ytd_base = c[c.index < ytd.index[0]].iloc[-1] if len(ytd) and (c.index < ytd.index[0]).any() else None
         hi52, lo52 = float(y1["High"].max()), float(y1["Low"].min())
+        proxy = ALIASES_USED.get(t)
         out.append({
             **{k: m[k] for k in ("key", "name", "ticker", "exchange", "city", "tz", "ccy", "sessions")},
+            "days": m.get("days", ["Mon", "Tue", "Wed", "Thu", "Fri"]),
+            "proxy": proxy, "ccy": PROXY_CCY.get(proxy, m["ccy"]),
             "asof": c.index[-1].strftime("%Y-%m-%d"),
             "last": float(last["Close"]), "prev": float(prev["Close"]),
             "chg": float(last["Close"] - prev["Close"]),
