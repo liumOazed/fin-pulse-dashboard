@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 
-def make_sample(tickers, n=800, seed=7):
+def make_sample(tickers, n=2600, seed=7):
     rng = np.random.default_rng(seed)
     idx = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=n)
     tickers = list(tickers)

@@ -35,6 +35,15 @@ Pulse.register({ id:'mychart', tab:'markets', order: 9, width:'half', title:'My 
 2. Add `<script src="assets/panels/mychart.js"></script>` in `index.html`.
 3. If it needs new numbers, compute them in `scripts/build_data.py` (`compute()`), add to the output dict.
 
+## Market regime
+`scripts/regime.py` labels each market card's index Bull / Neutral / Bear with up to four detectors, then averages their probabilities with the weights in `WEIGHTS` (equal for now):
+- **Trend rules**: price vs 50D/200D averages plus the index's own realised-volatility percentile.
+- **Hidden Markov model** (`hmmlearn`): 3 states on daily return and 10-day volatility, forward-filtered so each day only uses past prices.
+- **Statistical jump model**: k-means on return/volatility features with a penalty for switching state (`lam`), so it flips less often.
+- **Cross-asset** (US indices only): the risk-on composite, with extra bear weight when VIX/VIX3M > 1.
+
+The label only flips when another state leads the current one by `HYSTERESIS` or passes 50%. HMM and jump-model parameters are fit once on the full 10-year history, which slightly flatters the history chart but not today's reading. Each day's labels are logged to `signal_log.csv` (`reg_<market>` / `regp_<market>`), so the weights can later be set from out-of-sample results.
+
 ## Notes
 - `data/signal_log.csv` records each day's composite/regime so you can later test whether signals predicted forward returns.
 - Descriptive analytics, not investment advice. Sentiment/GDELT is deliberately excluded until validated.
