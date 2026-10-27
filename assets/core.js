@@ -99,7 +99,7 @@
         tabsEl.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === tab));
         root.innerHTML = '';
         panels.filter(p => (p.tab || 'overview') === tab)
-          .sort((a, b) => (a.order || 99) - (b.order || 99))
+          .sort((a, b) => (a.order ?? 99) - (b.order ?? 99))
           .forEach(p => {
             const c = Pulse.card(p); root.appendChild(c);
             try { p.render(c.querySelector('.body'), D, c.querySelector('.card-tools'), p.state); }
