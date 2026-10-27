@@ -224,3 +224,4 @@ table.t tbody tr:hover { background: var(--wash); }
 .mk-foot span { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
 .mk-foot b { font-size: 13px; font-weight: 600; }
 .mk-asof { font-size: 10.5px; color: var(--muted); }
+.mk-proxy { color: var(--warn); }

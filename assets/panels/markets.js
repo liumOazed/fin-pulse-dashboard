@@ -1,6 +1,6 @@
 Pulse.register({
   id: 'markets', tab: 'overview', order: 0,
-  title: 'Major markets', subtitle: 'Latest daily close for five benchmark indices. Session status follows each exchange’s local clock (holidays not included).',
+  title: 'Major markets', subtitle: 'Latest daily close for ten benchmark indices. Session status follows each exchange’s local clock (holidays not included).',
   render(el, d, tools, st) {
     const P = Pulse, rows = d.markets || [];
     if (!rows.length) { el.innerHTML = '<div class="muted small">Market data not available yet. Run the data workflow to load it.</div>'; return; }
@@ -19,7 +19,7 @@ Pulse.register({
       const toMin = s => { const [h, mm] = s.split(':'); return +h * 60 + +mm; };
       const ss = m.sessions.map(([a, b]) => [toMin(a), toMin(b)]);
       let state = 'closed', label = 'Closed';
-      if (!['Sat', 'Sun'].includes(parts.weekday)) {
+      if ((m.days || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']).includes(parts.weekday)) {
         if (ss.some(([a, b]) => mins >= a && mins < b)) { state = 'open'; label = 'Open'; }
         else if (mins >= ss[0][0] && mins < ss[ss.length - 1][1]) { state = 'break'; label = 'Lunch break'; }
         else if (mins < ss[0][0]) label = 'Pre-open';
@@ -55,7 +55,7 @@ Pulse.register({
         const s = status(m), sp = spark(m, m.key), c = P.dir(m.chg_pct);
         return `<article class="mk" data-key="${m.key}">
           <div class="mk-head">
-            <div><div class="mk-name">${m.name}</div><div class="mk-sub">${m.exchange} · ${m.city} <span class="mk-clock">${s.clock}</span></div></div>
+            <div><div class="mk-name">${m.name}</div><div class="mk-sub">${m.exchange} · ${m.city} <span class="mk-clock">${s.clock}</span>${m.proxy ? ` · <span class="mk-proxy" title="No index feed today, showing the ${m.proxy} ETF in USD">${m.proxy} ETF</span>` : ''}</div></div>
             <span class="mk-status ${s.state}"><i></i>${s.label}</span>
           </div>
           <div class="mk-px">${num(m.last)}<span>${m.ccy}</span></div>
