@@ -45,6 +45,21 @@ GLOBAL = {
 }
 BENCH_NAME = "S&P 500"
 
+# Headline market cards at the top of Overview. Session hours are local exchange
+# time; the browser uses them to show open / lunch break / closed.
+MARKETS = [
+    {"key": "spx", "name": "S&P 500", "ticker": "^GSPC", "exchange": "NYSE", "city": "New York",
+     "tz": "America/New_York", "ccy": "USD", "sessions": [["09:30", "16:00"]]},
+    {"key": "ixic", "name": "NASDAQ Composite", "ticker": "^IXIC", "exchange": "Nasdaq", "city": "New York",
+     "tz": "America/New_York", "ccy": "USD", "sessions": [["09:30", "16:00"]]},
+    {"key": "sse", "name": "Shanghai Composite", "ticker": "000001.SS", "exchange": "SSE", "city": "Shanghai",
+     "tz": "Asia/Shanghai", "ccy": "CNY", "sessions": [["09:30", "11:30"], ["13:00", "15:00"]]},
+    {"key": "n225", "name": "Nikkei 225", "ticker": "^N225", "exchange": "TSE", "city": "Tokyo",
+     "tz": "Asia/Tokyo", "ccy": "JPY", "sessions": [["09:00", "11:30"], ["12:30", "15:30"]]},
+    {"key": "hsi", "name": "Hang Seng", "ticker": "^HSI", "exchange": "HKEX", "city": "Hong Kong",
+     "tz": "Asia/Hong_Kong", "ccy": "HKD", "sessions": [["09:30", "12:00"], ["13:00", "16:00"]]},
+]
+
 SECTORS = {
     "Technology": "XLK", "Financials": "XLF", "Health Care": "XLV",
     "Cons. Discretionary": "XLY", "Energy": "XLE", "Comm. Services": "XLC",
@@ -435,6 +450,38 @@ def multi(px, lookback=126):
 
 
 # --------------------------------------------------------------------------
+# Panel 0 - Major market cards
+# --------------------------------------------------------------------------
+def markets(px):
+    out = []
+    for m in MARKETS:
+        t = m["ticker"]
+        if t not in px or len(px[t]) < 2:
+            continue
+        df = px[t].dropna(subset=["Close"])
+        c = df["Close"]
+        last, prev = df.iloc[-1], df.iloc[-2]
+        y1 = df.tail(252)
+        ytd = c[c.index >= pd.Timestamp(year=c.index[-1].year, month=1, day=1)]
+        ytd_base = c[c.index < ytd.index[0]].iloc[-1] if len(ytd) and (c.index < ytd.index[0]).any() else None
+        hi52, lo52 = float(y1["High"].max()), float(y1["Low"].min())
+        out.append({
+            **{k: m[k] for k in ("key", "name", "ticker", "exchange", "city", "tz", "ccy", "sessions")},
+            "asof": c.index[-1].strftime("%Y-%m-%d"),
+            "last": float(last["Close"]), "prev": float(prev["Close"]),
+            "chg": float(last["Close"] - prev["Close"]),
+            "chg_pct": float((last["Close"] / prev["Close"] - 1) * 100),
+            "open": float(last["Open"]), "day_high": float(last["High"]), "day_low": float(last["Low"]),
+            "hi52": hi52, "lo52": lo52,
+            "from_hi52": float((last["Close"] / hi52 - 1) * 100),
+            "ytd": float((c.iloc[-1] / ytd_base - 1) * 100) if ytd_base else None,
+            "r1m": ret(c, 21),
+            "spark": {"dates": _dates(y1.index), "close": _list(y1["Close"], 2)},
+        })
+    return out
+
+
+# --------------------------------------------------------------------------
 # Panel 5 - Scorecard, regime, flags
 # --------------------------------------------------------------------------
 def band(score):
@@ -585,6 +632,7 @@ def compute(px, sample=False):
     corr_data, avg_corr = correlation(px)
     sec_data = sectors(px)
     multi_data = multi(px)
+    markets_data = markets(px)
 
     sec_cl = closes(px, SECTORS).ffill(limit=3)
     sc, regime, vix_p, _ = scorecard(px, ro_series, ro_data, avg_corr, sec_cl)
@@ -603,7 +651,7 @@ def compute(px, sample=False):
             "chg1d": float((spy.iloc[-1] / spy.iloc[-2] - 1) * 100),
             "rsi": float(rsi(spy).iloc[-1]),
         },
-        "regime": regime, "scorecard": sc, "flags": flags,
+        "regime": regime, "scorecard": sc, "flags": flags, "markets": markets_data,
         "multi": multi_data, "quant": quant, "globaltable": gtable,
         "riskon": ro_data, "corr": corr_data, "sectors": sec_data,
     }
