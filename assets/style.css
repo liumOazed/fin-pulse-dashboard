@@ -76,6 +76,17 @@ body {
   background: none; border: 0; color: var(--ink-2); font: inherit; font-weight: 500;
   padding: 0 12px; cursor: pointer; position: relative; height: 100%;
 }
+.tab { white-space: nowrap; }
+.tab .ts { display: none; }
+@media (max-width: 700px) {
+  .tabs { overflow-x: auto; scrollbar-width: none; min-width: 0; flex: 1; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { padding: 0 8px; font-size: 13px; }
+  .tab .tl { display: none; }
+  .tab .ts { display: inline; }
+  .top-inner .spacer { display: none; }
+  .tab[aria-selected="true"]::after { left: 8px; right: 8px; }
+}
 .tab:hover { color: var(--ink); }
 .tab[aria-selected="true"] { color: var(--ink); }
 .tab[aria-selected="true"]::after {
@@ -294,6 +305,20 @@ table.t tbody tr:hover { background: var(--wash); }
 .ls-tile-t b { font-weight: 600; }
 .seg .ls-reset { border-left: 1px solid var(--border); border-radius: 0 6px 6px 0; margin-left: 2px; color: var(--muted); }
 .seg .ls-reset:hover { color: var(--ink); }
+.ls-global { border: 1px solid var(--border); border-radius: 12px; background: var(--page); }
+.ls-global summary {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; padding: 12px 16px; cursor: pointer; list-style: none;
+}
+.ls-global summary::-webkit-details-marker { display: none; }
+.ls-global summary::before { content: '›'; font-size: 18px; line-height: 1; color: var(--muted); transition: transform .15s; }
+.ls-global[open] summary::before { transform: rotate(90deg); }
+.ls-global summary .ls-h { margin: 0; font-size: 14px; }
+.ls-gsum { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.ls-gsum i { width: 7px; height: 7px; border-radius: 50%; }
+.ls-gsum b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.ls-gmore { margin-left: auto; font-size: 12px; color: var(--muted); }
+.ls-global .ls-tiles { padding: 0 16px 16px; margin: 0; }
+.ls-global .ls-tile { background: var(--card); }
 .ls-delta { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .ls-delta b { font-weight: 600; }
 .ls-spark { display: block; width: calc(100% + 32px); height: 46px; margin: 10px -16px 0; }

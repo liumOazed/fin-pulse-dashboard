@@ -1,5 +1,5 @@
 Pulse.register({
-  id: 'scorecard', tab: 'overview', order: 1,
+  id: 'scorecard', tab: 'signal', order: 0,
   title: 'Live signal', subtitle: 'Pick a market to see its price, regime and a 0–100 composite. Higher = more risk-on.',
   render(el, d, tools, st) {
     const P = Pulse, sig = d.signals, rows = (sig && sig.markets) || [];
@@ -133,7 +133,7 @@ Pulse.register({
               <div class="ls-mid"><span style="color:${COL[rg.label]}">${NAME[rg.label]}</span><em>${pct(rg.probs[rg.label])}</em></div>
               <div class="rg-stack" style="height:8px">${S.map(s => `<span style="width:${rg.probs[s] * 100}%;background:${COL[s]}" title="${NAME[s]} ${pct(rg.probs[s])}"></span>`).join('')}</div>
               <div class="ls-subline small">Since ${fmtDate(rg.since)} · ${rg.agree} of ${rg.n_models} models agree</div>
-              ${hl.length ? `<div class="ls-subline small">Days in last ${RL[st.win]}: ${S.map(s => `<span style="color:${COL[s]}">${NAME[s]} ${share(s)}%</span>`).join(' · ')}</div>` : ''}
+              ${hl.length ? `<div class="ls-subline small">Days in last ${RL[st.win]}: ${S.map(s => `<span style="color:${COL[s]};white-space:nowrap">${NAME[s]} ${share(s)}%</span>`).join(' · ')}</div>` : ''}
             </div></div>` : '<div class="ls-mid muted">–</div>'}
         </div>
         <div class="ls-card">
@@ -167,8 +167,12 @@ Pulse.register({
       el.innerHTML = chips + heroes +
         `<h3 class="ls-h">Key indicators <span>${m.name}</span></h3><div class="ls-tiles">${m.components.map(tile).join('')}</div>` +
         votes +
-        `<h3 class="ls-h">Global backdrop <span>same for every market</span></h3><div class="ls-tiles">${sig.global.map(tile).join('')}</div>`;
+        `<details class="ls-global"${st.gopen ? ' open' : ''}><summary><span class="ls-h">Global backdrop</span>
+          ${sig.global.map(c => `<span class="ls-gsum"><i style="background:${P.bandColor(c.band)}"></i>${c.name} <b>${P.fmt(c.score, 0)}</b></span>`).join('')}
+          <span class="ls-gmore">same for every market</span></summary>
+          <div class="ls-tiles">${sig.global.map(tile).join('')}</div></details>`;
 
+      el.querySelector('.ls-global').ontoggle = e => { st.gopen = e.target.open; };
       el.querySelectorAll('.ls-chip').forEach(b => b.onclick = () => Pulse.select(b.dataset.key));
       const on = el.querySelector('.ls-chip.on');
       if (on) { const c = on.parentNode; c.scrollLeft = on.offsetLeft - c.offsetLeft - 8; }
