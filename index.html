@@ -21,7 +21,7 @@
   <main id="panels" class="grid"></main>
 </div>
 <footer class="foot">
-  Descriptive analytics for research, not investment advice. Prices from Yahoo Finance via yfinance (delayed). Sentiment/GDELT signals are excluded until validated.
+  Descriptive analytics for research, not investment advice. Prices from Yahoo Finance via yfinance (delayed). Sentiment tab adds CFTC positioning, the AAII survey and StockTwits posts; it is kept out of the Live signal score.
 </footer>
 
 <!-- data (script tag so the page also works when opened from disk) -->
@@ -30,6 +30,7 @@
 <!-- PANELS: to add a chart, create assets/panels/<name>.js and add one line here -->
 <script src="assets/panels/markets.js"></script>
 <script src="assets/panels/scorecard.js"></script>
+<script src="assets/panels/sentiment.js"></script>
 <script src="assets/panels/flags.js"></script>
 <script src="assets/panels/quant.js"></script>
 <script src="assets/panels/globaltable.js"></script>

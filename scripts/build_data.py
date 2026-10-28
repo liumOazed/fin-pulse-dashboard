@@ -90,9 +90,12 @@ CORR = {
 
 RISK_EXTRA = ["XLY", "XLP", "HYG", "IEF", "RSP", "SPY", "^VIX", "^VIX3M", "CPER", "GLD"]
 
+# Sentiment tab (scripts/sentiment.py): CBOE SKEW index plus tickers already above
+SENTIMENT_EXTRA = ["^SKEW", "TLT"]
+
 ALL_TICKERS = sorted(
     set(GLOBAL.values()) | set(SECTORS.values()) | set(QUANT_TICKERS)
-    | set(CORR.values()) | set(RISK_EXTRA) | {m["ticker"] for m in MARKETS} | {PRIMARY}
+    | set(CORR.values()) | set(RISK_EXTRA) | set(SENTIMENT_EXTRA) | {m["ticker"] for m in MARKETS} | {PRIMARY}
 )
 
 
@@ -750,6 +753,14 @@ def compute(px, sample=False):
     asof = spy.index[-1].strftime("%Y-%m-%d")
     flags = build_flags(px, sc, quant, ro_data, corr_data, vix_p, missing, asof)
 
+    from sentiment import build as build_sentiment
+    try:
+        senti = build_sentiment(px, sec_cl, SECTORS, DATA_DIR, sample=sample)
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        senti = None
+
     return {
         "meta": {
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
@@ -763,7 +774,7 @@ def compute(px, sample=False):
         "regime": regime, "scorecard": sc, "flags": flags, "markets": markets_data,
         "regimes": regime_data, "signals": signals,
         "multi": multi_data, "quant": quant, "globaltable": gtable,
-        "riskon": ro_data, "corr": corr_data, "sectors": sec_data,
+        "riskon": ro_data, "corr": corr_data, "sectors": sec_data, "sentiment": senti,
     }
 
 
@@ -798,8 +809,8 @@ def write(data):
 
 def main():
     sample = "--sample" in sys.argv
+    sys.path.insert(0, str(Path(__file__).parent))
     if sample:
-        sys.path.insert(0, str(Path(__file__).parent))
         from make_sample import make_sample
         px = make_sample(ALL_TICKERS)
     else:

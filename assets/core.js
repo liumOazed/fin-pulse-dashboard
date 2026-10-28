@@ -4,6 +4,7 @@
   const TABS = [
     { id: 'overview', label: 'Overview', short: 'Overview' },
     { id: 'signal', label: 'Live signal', short: 'Signal' },
+    { id: 'sentiment', label: 'Sentiment', short: 'Sentiment' },
     { id: 'markets', label: 'Cross-asset & Sectors', short: 'Markets' },
   ];
   const panels = [];
