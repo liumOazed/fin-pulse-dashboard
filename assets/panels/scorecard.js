@@ -71,7 +71,7 @@ Pulse.register({
         votes +
         `<div class="ls-sec">Global backdrop <span>same for every market</span></div><div class="tiles ls-global">${sig.global.map(tile).join('')}</div>`;
 
-      el.querySelectorAll('.ls-pick').forEach(b => b.onclick = () => Pulse.select(b.dataset.key, false));
+      el.querySelectorAll('.ls-pick').forEach(b => b.onclick = () => Pulse.select(b.dataset.key));
 
       if (rg) {
         const h = rg.history;
