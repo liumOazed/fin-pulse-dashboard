@@ -292,6 +292,8 @@ table.t tbody tr:hover { background: var(--wash); }
 .ls-tile-v { font-size: 26px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .ls-tile-t { font-size: 12px; color: var(--muted); min-height: 18px; }
 .ls-tile-t b { font-weight: 600; }
+.ls-delta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.ls-delta b { font-weight: 600; }
 .ls-spark { display: block; width: calc(100% + 32px); height: 46px; margin: 10px -16px 0; }
 
 .ls-under { display: grid; grid-template-columns: 2fr 3fr; gap: 14px; margin-bottom: 22px; }
