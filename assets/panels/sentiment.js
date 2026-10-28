@@ -48,6 +48,17 @@ Pulse.register({
     };
     /* daily series cut to the window; weekly series (CFTC, AAII) to the same span in weeks */
     const cut = (vals, weekly) => (vals || []).slice(-(weekly ? Math.max(4, Math.round(st.win / 5)) : st.win));
+    /* value `win` trading days back (weekly series: win/5 weeks); shorter histories fall back to their oldest point */
+    const span = weekly => weekly ? Math.max(1, Math.round(st.win / 5)) : st.win;
+    const then = (vals, weekly) => {
+      const a = vals || [], k = span(weekly);
+      for (let j = Math.max(0, a.length - 1 - k); j < a.length - 1; j++) if (ok(a[j])) {
+        const n = a.length - 1 - j;
+        return { v: a[j], lab: n >= k * .9 ? RL[st.win] + ' ago' : weekly ? `${n}W ago` : `${n}D ago` };
+      }
+      return null;
+    };
+    const arrow = (d, good = 1) => `<b class="${P.dir(d * good)}">${d >= 0 ? '▲' : '▼'}</b>`;
     const stale = k => S.sources && S.sources[k] === 'stale' ? ' <span class="st-stale" title="Latest download failed, showing the previous run">stale</span>' : '';
 
     /* 240° gauge coloured fear -> greed, needle at the score */
@@ -83,7 +94,8 @@ Pulse.register({
 
     function draw() {
       gid = 0;
-      const wk = ok(fg.week_ago) ? fg.score - fg.week_ago : null;
+      const fgThen = then(fg.history.values), wd = fgThen ? fg.score - fgThen.v : null;
+      const fgWin = fg.history.values.slice(-(st.win + 1)).filter(ok);
 
       /* ---- hero ---- */
       const hero = `<div class="st-row st-r1">
@@ -96,9 +108,9 @@ Pulse.register({
             <div class="st-bar-k"><span style="color:${BEAR}">Fear<em>0–45</em></span><span style="color:${MID}">Neutral<em>45–55</em></span><span style="color:${BULL}">Greed<em>55–100</em></span></div>
           </div>
           <div class="st-hero-wk">
-            <div class="st-k">Compared to last week</div>
-            ${ok(wk) ? `<div class="st-wk" style="color:${wk >= 0 ? BULL : BEAR}">${wk >= 0 ? '▲' : '▼'} ${wk >= 0 ? '+' : '−'}${Math.abs(wk).toFixed(0)} <em>${Math.abs(wk) < 1 ? '(unchanged)' : wk > 0 ? '(more greedy)' : '(more fearful)'}</em></div>
-              <div class="st-k st-wk-t">${Math.abs(wk) < 1 ? 'Holding' : wk > 0 ? 'Improving' : 'Slipping'} from ${fg.week_ago.toFixed(0)} a week ago${ok(fg.month_ago) ? `, ${fg.month_ago.toFixed(0)} a month ago` : ''}.</div>` : '<div class="muted">–</div>'}
+            <div class="st-k">Compared to ${fgThen ? fgThen.lab : RL[st.win] + ' ago'}</div>
+            ${fgThen ? `<div class="st-wk" style="color:${wd >= 0 ? BULL : BEAR}">${wd >= 0 ? '▲' : '▼'} ${wd >= 0 ? '+' : '−'}${Math.abs(wd).toFixed(0)} <em>${Math.abs(wd) < 1 ? '(unchanged)' : wd > 0 ? '(more greedy)' : '(more fearful)'}</em></div>
+              <div class="st-k st-wk-t">From ${fgThen.v.toFixed(0)}. Over ${RL[st.win]}: low ${Math.min(...fgWin).toFixed(0)} · avg ${(fgWin.reduce((a, b) => a + b, 0) / fgWin.length).toFixed(0)} · high ${Math.max(...fgWin).toFixed(0)}.</div>` : '<div class="muted">–</div>'}
           </div>
         </div>
         <div class="ls-card st-mood">
@@ -114,27 +126,28 @@ Pulse.register({
       const tile = (ic, c, name, v, tag, foot, spark, note) => tiles.push(`<div class="ls-tile" title="${note || ''}">
         <div class="ls-tile-top">${icon(ic, c)}<div><div class="ls-tile-n">${name}</div>
         <div class="ls-tile-v">${v}${tag ? ` <span class="st-tag" style="color:${c}">${tag}</span>` : ''}</div><div class="ls-tile-t">${foot}</div></div></div>${spark}</div>`);
-      tile('smile', fgc, 'Fear & Greed', fg.score.toFixed(0), fg.label, ok(fg.week_ago) ? `${wk >= 0 ? 'Up' : 'Down'} from ${fg.week_ago.toFixed(0)} last week` : '',
+      const vs = (t, now, dp, unit = '', good = 1) => t ? `${arrow(now - t.v, good)} from ${t.v.toFixed(dp)}${unit} ${t.lab}` : `No history for ${RL[st.win]} yet`;
+      tile('smile', fgc, 'Fear & Greed', fg.score.toFixed(0), fg.label, vs(fgThen, fg.score, 0),
         area(cut(fg.history.values), fgc), 'Our 0–100 composite of seven market inputs');
       if (opt && ok(opt.pc_vol)) {
         const pc = opt.pc_vol, c = pc > 1.1 ? BEAR : pc < 0.8 ? BULL : MID;
-        tile('scale', c, 'Put/Call ratio', pc.toFixed(2), pc > 1.1 ? 'Hedging' : pc < 0.8 ? 'Bullish' : 'Balanced', `SPY options, ${fmtDate(opt.date)}${stale('options')}`,
+        tile('scale', c, 'Put/Call ratio', pc.toFixed(2), pc > 1.1 ? 'Hedging' : pc < 0.8 ? 'Bullish' : 'Balanced', `${vs(then(log.pc_vol), pc, 2, '', -1)}${stale('options')}`,
           area(cut(log.pc_vol), c), 'Put volume ÷ call volume across SPY options expiring in the next ~6 weeks. Below 1 = more calls.');
       }
       if (vix) {
-        const c = vix.pctile == null ? MID : tone(100 - vix.pctile), dv = vix.value - vix.week_ago;
+        const c = vix.pctile == null ? MID : tone(100 - vix.pctile);
         tile('wave', c, 'VIX (volatility)', vix.value.toFixed(1), vix.pctile < 35 ? 'Low fear' : vix.pctile > 70 ? 'High fear' : 'Normal',
-          `${dv <= 0 ? 'Down' : 'Up'} from ${vix.week_ago.toFixed(1)} last week`, area(cut(vix.series), c), 'Expected 30-day S&P 500 volatility implied by options');
+          vs(then(vix.series), vix.value, 1, '', -1), area(cut(vix.series), c), 'Expected 30-day S&P 500 volatility implied by options');
       }
       if (aaii) {
         const c = aaii.bull > 45 ? BULL : aaii.bull < 30 ? BEAR : MID;
-        tile('user', c, 'AAII survey (retail)', aaii.bull.toFixed(0) + '%', 'bulls', `Bears ${aaii.bear.toFixed(0)}% · week of ${fmtDate(aaii.asof)}${stale('aaii')}`,
+        tile('user', c, 'AAII survey (retail)', aaii.bull.toFixed(0) + '%', 'bulls', `${vs(then(aaii.series, true), aaii.bull, 0, '%')} · bears ${aaii.bear.toFixed(0)}%${stale('aaii')}`,
           area(cut(aaii.series, true), c), 'Weekly AAII poll of individual investors: share expecting stocks to rise over the next 6 months. Long-run average ≈ 37.5%.');
       }
       const inst = cot && cot.groups.find(g => g.key === 'inst');
       if (inst) {
         const c = posTone(inst.label);
-        tile('bank', c, 'Institutional positioning', P.sgn(inst.net_pct, 1), 'net long', `${inst.label} · ${P.sgn(inst.chg, 1, ' pts')} on the week${stale('cot')}`,
+        tile('bank', c, 'Institutional positioning', P.sgn(inst.net_pct, 1), 'net long', `${vs(then(inst.series, true), inst.net_pct, 1, '%')}${stale('cot')}`,
           area(cut(inst.series, true), c), 'Asset managers’ net long position in E-mini S&P 500 futures as % of open interest (CFTC, weekly). Replaces dollar fund flows, which need a paid feed.');
       }
 
@@ -144,38 +157,37 @@ Pulse.register({
         <div class="st-h">Sentiment by participant ${info('Net futures positioning in E-mini S&P 500 from the CFTC Traders in Financial Futures report, ranked against each group’s own last 3 years. Dealers are usually net short because they hedge clients, so the ranking matters more than the sign.')}</div>
         ${cot.groups.map(g => { const c = posTone(g.label); return `<div class="st-part">
           ${icon(PIC[g.key], c)}<div class="st-part-n"><b>${g.who}</b><span>${g.cftc}</span></div>
-          <div class="st-part-v"><div><span style="color:${c}">${g.label}</span><em>${ord(g.score)} pct</em></div>
+          <div class="st-part-v"><div><span style="color:${c}">${g.label}</span><em>${ord(g.score)} pct${(t => t ? ` · ${P.sgn(g.net_pct - t.v, 1, '')} ${t.lab.replace(' ago', '')}` : '')(then(g.series, true))}</em></div>
           <div class="ls-vbar"><span style="width:${Math.max(3, g.score)}%;background:${c}"></span></div></div></div>`; }).join('')}
         <div class="ls-foot"><span class="ls-i" aria-hidden="true">i</span>CFTC, week of ${fmtDate(cot.asof)}. Published Fridays for the prior Tuesday.${stale('cot')}</div>
       </div>` : '';
 
-      const r2 = `<h3 class="ls-h">Key sentiment indicators</h3><div class="ls-tiles st-tiles">${tiles.join('')}</div>`;
+      const r2 = `<h3 class="ls-h">Key sentiment indicators <span>Big numbers are the latest reading. Changes, ranges and charts use the ${RL[st.win]} window.</span></h3><div class="ls-tiles st-tiles">${tiles.join('')}</div>`;
 
       /* ---- trend chart + options ---- */
       const optRows = [];
       const orow = (ic, name, val, sub, c, chg, tip) => optRows.push(`<div class="st-orow" title="${tip}">${icon(ic, c)}<div class="st-on">${name}</div>
         <div class="st-ov"><b>${val}</b><span style="color:${c}">${sub}</span></div><div class="st-oc">${chg || ''}</div></div>`);
-      const prevOf = k => { const v = (log[k] || []).filter(ok); return v.length > 1 ? v[v.length - 2] : null; };
       const chg = (a, b, dp, good) => ok(a) && ok(b) ? `<b class="${P.dir((a - b) * good)}">${(a - b) >= 0 ? '▲' : '▼'} ${Math.abs(a - b).toFixed(dp)}</b>` : '';
       if (opt && ok(opt.pc_vol)) {
-        const cp = 1 / opt.pc_vol, c = cp > 1.25 ? BULL : cp < 0.9 ? BEAR : MID, pp = prevOf('pc_vol');
-        orow('scale', 'Call/Put volume ratio', cp.toFixed(2), cp > 1.25 ? 'bullish' : cp < 0.9 ? 'defensive' : 'neutral', c, pp ? chg(cp, 1 / pp, 2, 1) : '',
+        const cp = 1 / opt.pc_vol, c = cp > 1.25 ? BULL : cp < 0.9 ? BEAR : MID, pp = then(log.pc_vol);
+        orow('scale', 'Call/Put volume ratio', cp.toFixed(2), cp > 1.25 ? 'bullish' : cp < 0.9 ? 'defensive' : 'neutral', c, pp ? chg(cp, 1 / pp.v, 2, 1) + ` <span>${pp.lab.replace(' ago', '')}</span>` : '',
           'SPY call volume ÷ put volume, last session');
       }
       if (opt && ok(opt.pc_oi)) {
         const c = opt.pc_oi > 1.6 ? BEAR : opt.pc_oi < 1.1 ? BULL : MID;
-        orow('shield', 'Put/Call open interest', opt.pc_oi.toFixed(2), opt.pc_oi > 1.6 ? 'heavy hedging' : 'normal', c, chg(opt.pc_oi, prevOf('pc_oi'), 2, -1),
+        orow('shield', 'Put/Call open interest', opt.pc_oi.toFixed(2), opt.pc_oi > 1.6 ? 'heavy hedging' : 'normal', c, (t => t ? chg(opt.pc_oi, t.v, 2, -1) + ` <span>${t.lab.replace(' ago', '')}</span>` : '')(then(log.pc_oi)),
           'Open puts ÷ open calls in SPY. SPY normally carries more puts because funds use it to hedge.');
       }
       if (vix) {
         const c = tone(100 - (vix.pctile ?? 50));
-        orow('wave', 'Implied volatility (VIX)', vix.value.toFixed(1) + '%', vix.pctile > 70 ? 'elevated' : vix.pctile < 35 ? 'subdued' : 'normal', c, chg(vix.value, vix.week_ago, 1, -1) + ' <span>wk</span>',
+        orow('wave', 'Implied volatility (VIX)', vix.value.toFixed(1) + '%', vix.pctile > 70 ? 'elevated' : vix.pctile < 35 ? 'subdued' : 'normal', c, (t => t ? chg(vix.value, t.v, 1, -1) + ` <span>${t.lab.replace(' ago', '')}</span>` : '')(then(vix.series)),
           `${Math.round(vix.pctile)}th percentile of the past year`);
       }
       if (skew) {
         const c = skew.pctile > 75 ? BEAR : skew.pctile < 25 ? BULL : MID;
         orow('bolt', 'Tail-risk skew (SKEW)', skew.value.toFixed(0), skew.pctile > 75 ? 'crash hedges bid' : skew.pctile < 25 ? 'little tail fear' : 'neutral', c,
-          chg(skew.value, skew.week_ago, 0, -1) + ' <span>wk</span>', 'CBOE SKEW index: price of far out-of-the-money S&P puts. Above ~145 = heavy demand for crash protection.');
+          (t => t ? chg(skew.value, t.v, 0, -1) + ` <span>${t.lab.replace(' ago', '')}</span>` : '')(then(skew.series)), 'CBOE SKEW index: price of far out-of-the-money S&P puts. Above ~145 = heavy demand for crash protection.');
       }
       const opts = `<div class="ls-card st-opts"><div class="st-h">Options activity ${info('Call/put volume and open interest from SPY’s option chain on Yahoo; volatility and skew from CBOE indices.')}</div>${optRows.join('')}
           ${opt ? `<div class="ls-foot"><span class="ls-i" aria-hidden="true">i</span>SPY chain, session of ${fmtDate(opt.date)}.${stale('options')}</div>` : ''}</div>`;
@@ -187,23 +199,29 @@ Pulse.register({
 
       /* ---- drivers + social ---- */
       const drivers = `<div class="ls-card"><div class="st-h">What’s driving the score ${info('Each input is ranked 0–100 against its own past year. 0 = most fearful reading, 100 = most greedy.')}</div>
-        ${fg.components.map(c => `<div class="st-drv" title="${c.note}"><span class="st-drv-n">${c.name}<em>${c.text}</em></span>
-          <span class="st-drv-v" style="color:${tone(c.score)}">${c.score.toFixed(0)}</span>
-          <div class="st-drv-bar"><i style="left:${c.score}%;background:${tone(c.score)}"></i></div></div>`).join('')}
-        <div class="st-drv-k"><span>Fear</span><span>Greed</span></div></div>`;
-      const social = soc ? `<div class="ls-card st-social"><div class="st-h">Social media sentiment ${info('Share of posts tagged Bullish among those tagged Bullish or Bearish in each ticker’s latest 30 StockTwits messages. Small, noisy sample: read it as a temperature check.')}</div>
-        <div class="st-soc">${donut(soc.bull, BULL, Math.round(soc.bull) + '%', 'bullish')}
-          <div class="st-soc-l"><div class="st-k">Bullish share by ticker</div>
-          ${soc.symbols.map(s => `<div class="st-soc-r"><b>${s.symbol}</b><div class="st-soc-bar"><span style="width:${s.bull}%;background:${tone(s.bull)}"></span></div><span>${Math.round(s.bull)}%</span></div>`).join('')}</div></div>
-        <div class="ls-foot"><span class="ls-i" aria-hidden="true">i</span>StockTwits, ${soc.tagged} tagged posts, ${fmtDate(soc.asof)}.${stale('social')}</div></div>` : '';
-      const r4 = `<div class="st-row st-r4">${drivers}${opts}${social}</div>`;
+        ${fg.components.map(c => { const t = then(c.series); return `<div class="st-drv" title="${c.note}"><span class="st-drv-n">${c.name}<em>${c.text}</em></span>
+          <span class="st-drv-v"><span style="color:${tone(c.score)}">${c.score.toFixed(0)}</span>${t ? `<em>${P.sgn(c.score - t.v, 0, '')}</em>` : ''}</span>
+          <div class="st-drv-bar">${t ? `<s style="left:${t.v}%" title="${t.lab}: ${t.v.toFixed(0)}"></s>` : ''}<i style="left:${c.score}%;background:${tone(c.score)}"></i></div></div>`; }).join('')}
+        <div class="st-drv-k"><span>Fear</span><span><s></s> ${RL[st.win]} ago · <i></i> today</span><span>Greed</span></div></div>`;
+      const bar = s => `<div class="st-soc-r" title="${s.tagged} of the last ${s.posts} posts tagged"><b>${s.symbol}</b><div class="st-soc-bar"><span style="width:${s.bull}%;background:${tone(s.bull)}"></span></div><span>${Math.round(s.bull)}%</span></div>`;
+      const socThen = soc && then(log.social_bull);
+      const social = soc && soc.groups ? `<div class="ls-card st-social"><div class="st-h">Social media sentiment ${info('Share of posts tagged Bullish among those tagged Bullish or Bearish in each ticker’s latest 30 StockTwits messages. Groups and the overall figure weight each ticker by its tagged posts. Small, noisy sample: read it as a temperature check.')}</div>
+        <div class="st-soc">
+          <div class="st-soc-all">${donut(soc.bull, BULL, Math.round(soc.bull) + '%', 'bullish')}
+            <div class="st-k">${socThen ? `${arrow(soc.bull - socThen.v)} from ${socThen.v.toFixed(0)}% ${socThen.lab}` : `History builds up from daily runs`}</div></div>
+          <div class="st-soc-g">${soc.groups.map(g => { const t = then(log['social_' + g.name.toLowerCase()]); return `<div class="st-soc-col">
+            <div class="st-soc-gh"><b>${g.name}</b><span style="color:${tone(g.bull)}">${Math.round(g.bull)}%</span>${t ? `<em>${P.sgn(g.bull - t.v, 0, ' pts')}</em>` : ''}</div>
+            ${g.symbols.map(bar).join('')}</div>`; }).join('')}</div>
+        </div>
+        <div class="ls-foot"><span class="ls-i" aria-hidden="true">i</span>StockTwits, ${soc.tagged} tagged posts, ${fmtDate(soc.asof)}.${soc.skipped && soc.skipped.length ? ` Too few tagged posts to score: ${soc.skipped.join(', ')}.` : ''}${stale('social')}</div></div>` : '';
+      const r4 = `<div class="st-row st-r4">${drivers}${opts}</div>${social}`;
 
       /* ---- sectors + watch ---- */
-      const sec = (S.sectors || []);
+      const sec = (S.sectors || []), sr = s => s.rets ? s.rets[st.win] : s.r1m;
       const sectors = sec.length ? `<div class="ls-card"><div class="st-h">Sector sentiment ${info('Each sector ETF scored 0–100 from its trend (price vs 50D/200D), 3-month momentum rank and RSI. Sorted strongest first.')}</div>
-        <div class="st-sec">${sec.map(s => `<div class="st-sec-c" title="${s.name} (${s.ticker}) · ${s.label} · 1M ${P.sgn(s.r1m, 1)}"><b>${Math.round(s.score)}</b>
-          <span class="st-sec-bar" style="background:${tone(s.score)}"></span><span class="st-sec-n">${SHORT[s.name] || s.name}</span><span class="st-sec-r ${P.dir(s.r1m)}">${P.sgn(s.r1m, 1)}</span></div>`).join('')}</div>
-        <div class="st-sub small">Score 0–100 · 1-month return below</div></div>` : '';
+        <div class="st-sec">${sec.map(s => `<div class="st-sec-c" title="${s.name} (${s.ticker}) · ${s.label} · ${RL[st.win]} ${P.sgn(sr(s), 1)}"><b>${Math.round(s.score)}</b>
+          <span class="st-sec-bar" style="background:${tone(s.score)}"></span><span class="st-sec-n">${SHORT[s.name] || s.name}</span><span class="st-sec-r ${P.dir(sr(s))}">${P.sgn(sr(s), 1)}</span></div>`).join('')}</div>
+        <div class="st-sub small">Score 0–100 (today) · ${RL[st.win]} return below</div></div>` : '';
       const watch = `<div class="ls-card st-watch"><div class="st-h">${icon('bulb', MID)} What to watch</div>
         <ul>${(S.watch || []).map(w => `<li>${w}</li>`).join('')}</ul>
         <div class="st-call">Keep an eye on whether the mood turns into price: sentiment extremes tend to matter most when they start to reverse.</div></div>`;
