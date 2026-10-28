@@ -176,7 +176,8 @@ def sector_sentiment(sector_closes, sectors):
         score = 0.4 * trend + 0.3 * mom + 0.3 * r
         rows.append({"name": name, "ticker": t, "score": float(score), "label": pos_label(score),
                      "trend": float(trend), "momentum": mom, "rsi": r,
-                     "r1m": float((c.iloc[-1] / c.iloc[-22] - 1) * 100)})
+                     "r1m": float((c.iloc[-1] / c.iloc[-22] - 1) * 100),
+                     "rets": {str(n): float((c.iloc[-1] / c.iloc[-1 - n] - 1) * 100) for n in (21, 63, 126, 252)}})
     return sorted(rows, key=lambda x: -x["score"])
 
 
@@ -217,43 +218,63 @@ def sample_options(px):
 # --------------------------------------------------------------------------
 # StockTwits: share of bullish-tagged posts in each symbol's latest stream
 # --------------------------------------------------------------------------
-SOCIAL_SYMBOLS = ["SPY", "QQQ", "NVDA", "AAPL", "TSLA", "MSFT", "AMZN"]
+SOCIAL_GROUPS = {
+    "Index": ["SPY", "QQQ"],
+    "Tech": ["NVDA", "AAPL", "MSFT", "AMZN", "TSLA", "GOOGL", "META", "AMD"],
+    "Payments": ["MA", "V"],
+    "Growth": ["ADME", "APP", "BKNG", "DECK", "EXPE", "FICO", "INCY", "INTU", "MKC"],
+}
 
 
 def _bull_share(msgs):
     tags = [((m.get("entities") or {}).get("sentiment") or {}).get("basic") for m in msgs]
     tags = [t for t in tags if t in ("Bullish", "Bearish")]
-    return (sum(t == "Bullish" for t in tags) / len(tags) * 100, len(tags), len(msgs)) if len(tags) >= 5 else None
+    return (sum(t == "Bullish" for t in tags) / len(tags) * 100, len(tags), len(msgs)) if len(tags) >= 3 else None
+
+
+def _social_summary(rows, skipped):
+    """Overall and per-group bullish share, weighting each ticker by its tagged posts."""
+    def pooled(rs):
+        t = sum(r["tagged"] for r in rs)
+        return (sum(r["bull"] * r["tagged"] for r in rs) / t, t) if t else (None, 0)
+
+    groups = []
+    for g in SOCIAL_GROUPS:
+        rs = [r for r in rows if r["group"] == g]
+        if rs:
+            b, t = pooled(rs)
+            groups.append({"name": g, "bull": b, "tagged": t, "symbols": sorted(rs, key=lambda r: -r["bull"])})
+    bull, tagged = pooled(rows)
+    return {"asof": date.today().isoformat(), "bull": bull, "tagged": tagged, "groups": groups, "skipped": skipped}
 
 
 def social_live():
     import time
 
-    rows = []
-    for sym in SOCIAL_SYMBOLS:
-        try:
-            msgs = json.loads(_get(f"https://api.stocktwits.com/api/2/streams/symbol/{sym}.json")).get("messages", [])
-        except Exception as e:
-            print(f"stocktwits {sym}: {str(e)[:120]}")
-            continue
-        r = _bull_share(msgs)
-        if r:
-            rows.append({"symbol": sym, "bull": r[0], "tagged": r[1], "posts": r[2]})
-        time.sleep(1)
-    if len(rows) < 3:
+    rows, skipped = [], []
+    for g, syms in SOCIAL_GROUPS.items():
+        for sym in syms:
+            try:
+                msgs = json.loads(_get(f"https://api.stocktwits.com/api/2/streams/symbol/{sym}.json")).get("messages", [])
+                r = _bull_share(msgs)
+            except Exception as e:
+                print(f"stocktwits {sym}: {str(e)[:120]}")
+                r = None
+            if r:
+                rows.append({"symbol": sym, "group": g, "bull": r[0], "tagged": r[1], "posts": r[2]})
+            else:
+                skipped.append(sym)
+            time.sleep(1)
+    if len(rows) < 5:
         return None
-    tagged = sum(r["tagged"] for r in rows)
-    bull = sum(r["bull"] * r["tagged"] for r in rows) / tagged
-    return {"asof": date.today().isoformat(), "bull": bull, "tagged": tagged, "symbols": rows}
+    return _social_summary(rows, skipped)
 
 
 def sample_social():
     rng = np.random.default_rng(5)
-    rows = [{"symbol": s, "bull": float(np.clip(rng.normal(62, 12), 20, 95)), "tagged": int(rng.integers(8, 25)), "posts": 30}
-            for s in SOCIAL_SYMBOLS]
-    tagged = sum(r["tagged"] for r in rows)
-    return {"asof": date.today().isoformat(), "bull": sum(r["bull"] * r["tagged"] for r in rows) / tagged,
-            "tagged": tagged, "symbols": rows}
+    rows = [{"symbol": s, "group": g, "bull": float(np.clip(rng.normal(62, 14), 15, 100)), "tagged": int(rng.integers(4, 25)), "posts": 30}
+            for g, syms in SOCIAL_GROUPS.items() for s in syms]
+    return _social_summary(rows, [])
 
 
 # --------------------------------------------------------------------------
@@ -301,9 +322,9 @@ def cot_from_rows(rows):
         score = float((w <= w.iloc[-1]).mean() * 100)
         groups.append({"key": key, "who": who, "cftc": cftc, "score": score, "label": pos_label(score),
                        "net_pct": float(s.iloc[-1]), "chg": float(s.iloc[-1] - s.iloc[-2]),
-                       "series": _list(s.tail(52), 2)})
+                       "series": _list(s.tail(60), 2)})
     return {"asof": df.index[-1].strftime("%Y-%m-%d"), "market": "E-mini S&P 500 futures",
-            "dates": _dates(df.index[-52:]), "groups": groups}
+            "dates": _dates(df.index[-60:]), "groups": groups}
 
 
 def cot_live():
@@ -345,7 +366,7 @@ def aaii_live():
         recs.append((d, b * 100, n * 100, s * 100))
     if len(recs) < 10:
         return None
-    a = pd.DataFrame(recs, columns=["date", "bull", "neutral", "bear"]).set_index("date").sort_index().tail(52)
+    a = pd.DataFrame(recs, columns=["date", "bull", "neutral", "bear"]).set_index("date").sort_index().tail(60)
     return {"asof": a.index[-1].strftime("%Y-%m-%d"), "bull": float(a["bull"].iloc[-1]),
             "neutral": float(a["neutral"].iloc[-1]), "bear": float(a["bear"].iloc[-1]),
             "prev_bull": float(a["bull"].iloc[-2]), "series": _list(a["bull"], 1)}
@@ -353,8 +374,8 @@ def aaii_live():
 
 def sample_aaii():
     rng = np.random.default_rng(9)
-    bull = np.clip(37 + np.cumsum(rng.normal(0, 3, 52)) * .6, 15, 60)
-    bear = np.clip(31 - (bull - 37) * .6 + rng.normal(0, 3, 52), 15, 55)
+    bull = np.clip(37 + np.cumsum(rng.normal(0, 3, 60)) * .6, 15, 60)
+    bear = np.clip(31 - (bull - 37) * .6 + rng.normal(0, 3, 60), 15, 55)
     return {"asof": date.today().isoformat(), "bull": float(bull[-1]), "neutral": float(100 - bull[-1] - bear[-1]),
             "bear": float(bear[-1]), "prev_bull": float(bull[-2]), "series": [round(float(x), 1) for x in bull]}
 
@@ -364,7 +385,7 @@ def sample_aaii():
 # --------------------------------------------------------------------------
 def daily_log(log_path, row, write):
     """Feeds without history (option chain, StockTwits) build one up here, one row per day."""
-    cols = ["date", "pc_vol", "pc_oi", "social_bull"]
+    cols = ["date", "pc_vol", "pc_oi", "social_bull"] + [f"social_{g.lower()}" for g in SOCIAL_GROUPS]
     old = pd.read_csv(log_path) if log_path.exists() else pd.DataFrame(columns=cols)
     for c in cols:
         if c not in old:
@@ -424,7 +445,11 @@ def watch_list(s):
                    + (f" (bulls {'up' if a['bull'] >= a['prev_bull'] else 'down'} from {a['prev_bull']:.0f}%)." if a.get("prev_bull") else "."))
     so = s.get("social")
     if so:
-        out.append(f"StockTwits posts lean {so['bull']:.0f}% bullish across {len(so['symbols'])} popular tickers.")
+        gs = so.get("groups") or []
+        if gs:
+            hi, lo = max(gs, key=lambda g: g["bull"]), min(gs, key=lambda g: g["bull"])
+            out.append(f"StockTwits posts lean {so['bull']:.0f}% bullish; {hi['name'].lower()} names are the most upbeat ({hi['bull']:.0f}%)"
+                       + (f", {lo['name'].lower()} the least ({lo['bull']:.0f}%)." if lo is not hi else "."))
     sec = s.get("sectors") or []
     if len(sec) >= 3:
         out.append(f"Strongest sectors: {sec[0]['name']}, {sec[1]['name']}. Weakest: {sec[-1]['name']}.")
@@ -491,6 +516,7 @@ def build(px, sector_closes, sectors, data_dir, sample=False):
     if out["sources"]["social"] == "ok":
         row.setdefault("date", out["social"]["asof"])
         row["social_bull"] = out["social"]["bull"]
+        row.update({f"social_{g['name'].lower()}": g["bull"] for g in out["social"]["groups"]})
     out["log"] = daily_log(data_dir / "sentiment_log.csv", row or None, write=not sample)
     out["watch"] = watch_list(out)
     return out
