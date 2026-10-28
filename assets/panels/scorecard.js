@@ -9,7 +9,7 @@ Pulse.register({
 
     const S = ['bull', 'neutral', 'bear'];
     const NAME = { bull: 'Bull', neutral: 'Neutral', bear: 'Bear' };
-    const COL = { bull: P.css('--good'), neutral: P.css('--warn'), bear: P.css('--bad') };
+    const COL = { bull: P.css('--rg-bull'), neutral: P.css('--rg-neutral'), bear: P.css('--rg-bear') };
     const WIN = { 21: '1 month', 63: '3 months', 126: '6 months', 252: '12 months' };
     const pct = v => Math.round(v * 100) + '%';
     const num = (v, dp = 2) => v == null ? '–' : Number(v).toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
@@ -158,9 +158,9 @@ Pulse.register({
           ${m.proxy ? `<div class="ls-foot"><span class="ls-i" aria-hidden="true">i</span>Shown via the ${m.proxy} ETF because there is no index feed, so treat this call with extra caution.</div>` : ''}
         </div>
         <div class="ls-card">
-          <div class="ls-card-h"><span>Regime probabilities <span class="muted">(last ${WIN[st.win]})</span></span>
+          <div class="ls-card-h"><span>Regime probabilities <span class="muted">(last ${WIN[st.win]})</span> ${info('Stacked share of bull, neutral and bear probability each day. The strip underneath is the combined call for that day.')}</span>
             <span class="ls-legend">${S.map(s => `<span><i style="background:${COL[s]}"></i>${NAME[s]}</span>`).join('')}</span></div>
-          <div class="ls-chart" style="height:240px"></div>
+          <div class="ls-chart" style="height:260px"></div>
         </div>
       </div>` : '';
 
@@ -179,13 +179,39 @@ Pulse.register({
 
       if (rg) {
         const h = rg.history, n = st.win;
-        P.plot(el.querySelector('.ls-chart'), S.slice().reverse().map(s => ({
-          x: h.dates.slice(-n), y: h[s].slice(-n), name: NAME[s], type: 'scatter', mode: 'lines', stackgroup: 'p',
-          line: { width: 1.2, color: COL[s], shape: 'spline', smoothing: .4 }, fillcolor: rgba(COL[s], .38),
-          hovertemplate: `${NAME[s]} %{y:.0%}<extra></extra>`,
-        })), P.layout({ margin: { l: 8, r: 8, t: 4, b: 8 }, shapes: [P.hline(.5)],
-          xaxis: { showline: false },
-          yaxis: { range: [0, 1], tickformat: '.0%', side: 'right', dtick: .5, gridcolor: P.css('--grid') } }));
+        const x = h.dates.slice(-n), lab = h.label.slice(-n), surf = P.css('--page'), ink = P.css('--ink-2');
+        const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+        const [a0, a1] = dark ? [.38, .92] : [.22, .8];
+        const up = S.slice().reverse();  /* stack bottom -> top: bear, neutral, bull */
+        const traces = up.map(s => ({
+          x, y: h[s].slice(-n), name: NAME[s], type: 'scatter', mode: 'lines', stackgroup: 'p',
+          line: { width: 1, color: surf, shape: 'spline', smoothing: .6 },
+          fillcolor: rgba(COL[s], .55),
+          fillgradient: { type: 'vertical', colorscale: [[0, rgba(COL[s], a0)], [1, rgba(COL[s], a1)]] },
+          hovertemplate: `<span style="color:${COL[s]}">●</span> ${NAME[s]}  <b>%{y:.0%}</b><extra></extra>`,
+        }));
+        /* regime-call ribbon: one block per run of the same label */
+        const shapes = [P.hline(.5, 'y', rgba(P.css('--ink'), .35))];
+        for (let i = 0, j; i < lab.length; i = j) {
+          for (j = i + 1; j < lab.length && lab[j] === lab[i]; j++);
+          shapes.push({ type: 'rect', xref: 'x', yref: 'paper', x0: x[i], x1: x[Math.min(j, lab.length - 1)], y0: .035, y1: .07,
+            fillcolor: COL[lab[i]], line: { width: 0 }, layer: 'above' });
+        }
+        /* end labels at the middle of each band that is big enough to hold one */
+        const last = Object.fromEntries(S.map(s => [s, h[s][h[s].length - 1]]));
+        const narrow = el.querySelector('.ls-chart').clientWidth < 460;
+        let base = 0; const ann = [];
+        up.forEach(s => { const v = last[s]; if (v >= .08 && !narrow) ann.push({ x: x[x.length - 1], y: base + v / 2, xanchor: 'left', xshift: 8, showarrow: false,
+          text: `<b>${pct(v)}</b> <span style="color:${ink}">${NAME[s]}</span>`, font: { size: 11.5, color: P.css('--ink') } }); base += v; });
+        if (!narrow) ann.push({ xref: 'paper', yref: 'paper', x: 1, y: .0525, xanchor: 'left', xshift: 8, showarrow: false,
+          text: 'Daily call', font: { size: 10.5, color: P.css('--muted') } });
+        P.plot(el.querySelector('.ls-chart'), traces, P.layout({
+          margin: { l: 8, r: narrow ? 8 : 82, t: 6, b: 22 }, shapes, annotations: ann,
+          hoverlabel: { bgcolor: P.css('--card'), bordercolor: P.css('--border'), font: { color: P.css('--ink'), size: 12 } },
+          xaxis: { anchor: 'free', position: 0, range: [x[0], x[x.length - 1]], autorange: false, showline: false, showgrid: false, ticks: '', hoverformat: '%d %b %Y', tickformat: st.win <= 63 ? '%d %b' : '%b %Y',
+            showspikes: false },
+          yaxis: { range: [0, 1], domain: [.1, 1], tickformat: '.0%', side: 'left', tickvals: [0, .5, 1], gridcolor: rgba(P.css('--ink'), .06), zeroline: false },
+        }));
       }
     }
     Pulse.onPick = draw;
