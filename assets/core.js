@@ -2,8 +2,9 @@
    Add a chart: create assets/panels/<name>.js with Pulse.register({...}) and add a <script> tag. */
 (function () {
   const TABS = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'markets', label: 'Cross-asset & Sectors' },
+    { id: 'overview', label: 'Overview', short: 'Overview' },
+    { id: 'signal', label: 'Live signal', short: 'Signal' },
+    { id: 'markets', label: 'Cross-asset & Sectors', short: 'Markets' },
   ];
   const panels = [];
   const D = window.PULSE_DATA || null;
@@ -98,7 +99,7 @@
       if (notes.length) { nb.hidden = false; nb.innerHTML = notes.join('<br>'); }
 
       const tabsEl = document.getElementById('tabs');
-      tabsEl.innerHTML = TABS.map(t => `<button class="tab" role="tab" data-tab="${t.id}">${t.label}</button>`).join('');
+      tabsEl.innerHTML = TABS.map(t => `<button class="tab" role="tab" data-tab="${t.id}"><span class="tl">${t.label}</span><span class="ts">${t.short || t.label}</span></button>`).join('');
       const current = () => { const h = location.hash.slice(1); return TABS.some(t => t.id === h) ? h : TABS[0].id; };
 
       const draw = () => {
