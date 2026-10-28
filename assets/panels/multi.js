@@ -1,12 +1,12 @@
 Pulse.register({
-  id: 'multi', tab: 'overview', order: 3,
+  id: 'multi', tab: 'overview', order: 1,
   title: 'Global index performance', subtitle: 'Ranked return over the period. Click a bar to compare that index with the S&P 500.',
   render(el, d, tools, st) {
     const P = Pulse, m = d.multi, names = Object.keys(m.series), BENCH = 'S&P 500';
     st.win = st.win || 126; st.pick = st.pick || null;
     tools.appendChild(P.seg([[21, '1M'], [63, '3M'], [126, '6M']], st.win, v => { st.win = v; draw(); }));
-    el.innerHTML = `<div class="cols l"><div><div class="chart-title">Return over period</div><div class="bars" style="height:380px"></div></div>
-      <div><div class="legend lg"></div><div class="line" style="height:356px"></div></div></div>`;
+    el.innerHTML = `<div class="cols l"><div><div class="chart-title">Return over period</div><div class="bars" style="height:420px"></div></div>
+      <div><div class="legend lg"></div><div class="line" style="height:396px"></div></div></div>`;
     const bars = el.querySelector('.bars'), line = el.querySelector('.line'), lg = el.querySelector('.legend');
 
     const slice = () => {
