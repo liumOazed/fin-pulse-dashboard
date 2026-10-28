@@ -86,7 +86,16 @@ Pulse.register({
     };
 
     /* range toggle: charts show the window, the "over 6M" lines give the change across it */
-    tools.appendChild(P.seg([[21, '1M'], [63, '3M'], [126, '6M'], [252, '1Y']], st.win, v => { st.win = v; draw(); }));
+    const seg = P.seg([[21, '1M'], [63, '3M'], [126, '6M'], [252, '1Y']], st.win, v => { st.win = v; draw(); });
+    /* Reset: back to the default view (6M, first market) */
+    const rs = document.createElement('button'); rs.type = 'button'; rs.className = 'ls-reset'; rs.textContent = 'Reset';
+    rs.onclick = () => {
+      st.win = 126;
+      seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.textContent === '6M'));
+      Pulse.select(rows[0].key);
+    };
+    seg.appendChild(rs);
+    tools.appendChild(seg);
 
     function draw() {
       if (!rows.some(m => m.key === Pulse.pick)) Pulse.pick = rows[0].key;
