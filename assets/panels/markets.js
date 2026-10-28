@@ -53,7 +53,7 @@ Pulse.register({
       const per = { 5: '1W', 21: '1M', 63: '3M', 252: '1Y' }[st.win];
       el.innerHTML = '<div class="mk-grid">' + rows.map(m => {
         const s = status(m), sp = spark(m, m.key), c = P.dir(m.chg_pct);
-        return `<article class="mk${m.key === Pulse.pick ? ' sel' : ''}" data-key="${m.key}" title="Show ${m.name} in Live signal">
+        return `<article class="mk" data-key="${m.key}">
           <div class="mk-head">
             <div><div class="mk-name">${m.name}</div><div class="mk-sub">${m.exchange} · ${m.city} <span class="mk-clock">${s.clock}</span>${m.proxy ? ` · <span class="mk-proxy" title="No index feed today, showing the ${m.proxy} ETF in USD">${m.proxy} ETF</span>` : ''}</div></div>
             <span class="mk-status ${s.state}"><i></i>${s.label}</span>
@@ -73,7 +73,6 @@ Pulse.register({
       }).join('') + '</div>';
     }
     draw();
-    el.onclick = e => { const c = e.target.closest('.mk'); if (c) Pulse.select(c.dataset.key, true); };
 
     /* Keep the session pills and clocks current without redrawing the cards */
     clearInterval(st.timer);

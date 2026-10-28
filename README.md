@@ -36,7 +36,7 @@ Pulse.register({ id:'mychart', tab:'markets', order: 9, width:'half', title:'My 
 3. If it needs new numbers, compute them in `scripts/build_data.py` (`compute()`), add to the output dict.
 
 ## Live signal
-One panel, driven by a market picker (clicking a Major markets card also selects it). For the selected index it shows price, its regime consensus and a 0–100 composite = average of four market-specific scores: Trend, Momentum, Volatility (VIX for US indices, own 21D volatility elsewhere) and Regime (50 + 50 × (P(bull) − P(bear))). Risk appetite, Diversification and US sector breadth are cross-asset / US-only, so they are shown separately as a fixed "Global backdrop". `signal_log.csv` still logs the original six-part SPY composite.
+One panel, driven by its own market picker. For the selected index it shows price, its regime consensus and a 0–100 composite = average of four market-specific scores: Trend, Momentum, Volatility (VIX for US indices, own 21D volatility elsewhere) and Regime (50 + 50 × (P(bull) − P(bear))). Risk appetite, Diversification and US sector breadth are cross-asset / US-only, so they are shown separately as a fixed "Global backdrop". `signal_log.csv` still logs the original six-part SPY composite.
 
 ## Market regime
 `scripts/regime.py` labels each market card's index Bull / Neutral / Bear with up to four detectors, then averages their probabilities with the weights in `WEIGHTS` (equal for now):

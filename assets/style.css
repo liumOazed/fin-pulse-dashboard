@@ -227,10 +227,6 @@ table.t tbody tr:hover { background: var(--wash); }
 .mk-proxy { color: var(--warn); }
 
 /* ---------- Live signal ---------- */
-.card { scroll-margin-top: 72px; }
-.mk { cursor: pointer; transition: border-color .15s; }
-.mk:hover { border-color: var(--axis); }
-.mk.sel { border-color: var(--s1); box-shadow: 0 0 0 1px var(--s1) inset; }
 .rg-stack { display: flex; border-radius: 3px; overflow: hidden; background: var(--grid); gap: 1px; }
 .rg-stack span { display: block; height: 100%; }
 .ls-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
