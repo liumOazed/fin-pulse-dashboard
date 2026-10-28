@@ -65,25 +65,32 @@ Pulse.register({
         <div><b>${P.fmt(v, 0)}</b><span>/ 100</span></div></div>`;
     };
 
+    const RL = { 21: '1M', 63: '3M', 126: '6M', 252: '1Y' };
+    /* change of a series across the selected window: % for price-like levels, points otherwise */
+    const PCT = { momentum: 1, volatility: 1 };
+    const INV = { volatility: 1, diversification: 1 };  /* rising = worse, so colour red */
+    const delta = (key, vals) => {
+      const v = (vals || []).filter(x => x != null && !isNaN(x)).slice(-(st.win + 1));
+      if (v.length < 2) return '';
+      const a = v[0], b = v[v.length - 1];
+      const txt = PCT[key] ? (a ? P.sgn((b / a - 1) * 100, 1) : '–') : P.sgn(b - a, key === 'diversification' ? 2 : 1, key === 'diversification' ? '' : ' pts');
+      const n = v.length - 1, good = INV[key] ? a - b : b - a;
+      return `<div class="ls-delta">${n < st.win - 5 ? `${n}D` : RL[st.win]} change <b class="${P.dir(good)}">${txt}</b></div>`;
+    };
     const tile = c => {
       const col = P.bandColor(c.band);
       return `<div class="ls-tile" title="${c.note || ''}">
         <div class="ls-tile-top">${icon(c.key, col)}<div><div class="ls-tile-n">${c.name}</div>
-          <div class="ls-tile-v">${P.fmt(c.score, 0)}</div><div class="ls-tile-t">${tint(c.text)}</div></div></div>
+          <div class="ls-tile-v">${P.fmt(c.score, 0)}</div><div class="ls-tile-t">${tint(c.text)}</div>${delta(c.key, c.series)}</div></div>
         ${area((c.series || []).slice(-st.win), col)}</div>`;
     };
 
-    /* header controls: market dropdown + range */
-    const sel = document.createElement('select'); sel.className = 'sel'; sel.setAttribute('aria-label', 'Market');
-    sel.innerHTML = rows.map(x => `<option value="${x.key}">${x.name}${x.ticker ? ' · ' + x.ticker : ''}</option>`).join('');
-    sel.onchange = () => Pulse.select(sel.value);
-    tools.appendChild(sel);
+    /* range toggle: charts show the window, the "over 6M" lines give the change across it */
     tools.appendChild(P.seg([[21, '1M'], [63, '3M'], [126, '6M'], [252, '1Y']], st.win, v => { st.win = v; draw(); }));
 
     function draw() {
       if (!rows.some(m => m.key === Pulse.pick)) Pulse.pick = rows[0].key;
       const m = rows.find(x => x.key === Pulse.pick), rg = regs[m.key];
-      sel.value = m.key;
       gid = 0;
 
       const chips = `<div class="ls-chips" role="tablist">${rows.map(x => {
@@ -93,6 +100,11 @@ Pulse.register({
           <span class="ls-chip-v">${num(x.close)} <b class="${P.dir(x.chg1d)}">${P.sgn(x.chg1d, 2)}</b></span></button>`;
       }).join('')}</div>`;
 
+      const mk = (d.markets || []).find(x => x.key === m.key);
+      const cl = ((mk && mk.spark && mk.spark.close) || []).filter(x => x != null).slice(-(st.win + 1));
+      const rr = cl.length > 1 ? (cl[cl.length - 1] / cl[0] - 1) * 100 : null;
+      const hl = rg ? rg.history.label.slice(-st.win) : [];
+      const share = s => hl.length ? Math.round(hl.filter(x => x === s).length / hl.length * 100) : 0;
       const dc = m.chg1d < 0 ? P.css('--bad') : P.css('--good');
       const cc = P.bandColor(bandOf(m.label));
       const heroes = `<div class="ls-heroes">
@@ -102,6 +114,7 @@ Pulse.register({
             <div class="ls-name">${m.name}${m.proxy ? ` <span class="mk-proxy">· ${m.proxy} ETF</span>` : ''}</div>
             <div class="ls-big">${num(m.close)}</div>
             <div class="ls-subline"><span class="${P.dir(m.chg1d)}">${P.sgn(m.chg1d, 2)}</span> today <span class="dot">•</span> RSI ${P.fmt(m.rsi, 0)}</div>
+            ${rr != null ? `<div class="ls-subline"><span class="${P.dir(rr)}">${P.sgn(rr, 1)}</span> over ${RL[st.win]}</div>` : ''}
           </div>
         </div>
         <div class="ls-card">
@@ -111,6 +124,7 @@ Pulse.register({
               <div class="ls-mid"><span style="color:${COL[rg.label]}">${NAME[rg.label]}</span><em>${pct(rg.probs[rg.label])}</em></div>
               <div class="rg-stack" style="height:8px">${S.map(s => `<span style="width:${rg.probs[s] * 100}%;background:${COL[s]}" title="${NAME[s]} ${pct(rg.probs[s])}"></span>`).join('')}</div>
               <div class="ls-subline small">Since ${fmtDate(rg.since)} · ${rg.agree} of ${rg.n_models} models agree</div>
+              ${hl.length ? `<div class="ls-subline small">Days in last ${RL[st.win]}: ${S.map(s => `<span style="color:${COL[s]}">${NAME[s]} ${share(s)}%</span>`).join(' · ')}</div>` : ''}
             </div></div>` : '<div class="ls-mid muted">–</div>'}
         </div>
         <div class="ls-card">
@@ -119,7 +133,7 @@ Pulse.register({
             <div class="ls-reg-body">
               <div class="ls-zone"><span style="width:${m.composite}%;background:${cc}"></span><i style="left:45%"></i><i style="left:62%"></i></div>
               <div class="ls-zone-k"><span>Risk-Off</span><span>Neutral</span><span>Risk-On</span></div>
-              <span class="pill"><i style="background:${cc}"></i>${m.label}</span>
+              <span class="pill"><i style="background:${cc}"></i>${m.label}</span> <span class="small muted">today's reading</span>
             </div></div>
         </div>
       </div>`;
