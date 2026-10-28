@@ -30,18 +30,28 @@ DATA_DIR = ROOT / "data"
 # --------------------------------------------------------------------------
 PRIMARY = "SPY"  # asset used for trend / regime
 
+# Global trend table + performance chart. Includes every Major markets index.
 GLOBAL = {
     "S&P 500": "^GSPC",
     "Nasdaq": "^IXIC",
     "Dow Jones": "^DJI",
-    "Shanghai": "000001.SS",
-    "Nikkei 225": "^N225",
+    "Euronext 100": "^N100",
     "Euro Stoxx 50": "^STOXX50E",
-    "Nifty 50": "^NSEI",
+    "FTSE 100": "^FTSE",
+    "Shanghai": "000001.SS",
     "Shenzhen": "399001.SZ",
     "Hang Seng": "^HSI",
-    "FTSE 100": "^FTSE",
+    "Nikkei 225": "^N225",
+    "Nifty 50": "^NSEI",
+    "Straits Times": "^STI",
     "Tadawul": "^TASI.SR",
+    "FTSE ADX": "FADGI.FGI",
+}
+REGION = {
+    "S&P 500": "Americas", "Nasdaq": "Americas", "Dow Jones": "Americas",
+    "Euronext 100": "Europe", "Euro Stoxx 50": "Europe", "FTSE 100": "Europe",
+    "Shanghai": "Asia", "Shenzhen": "Asia", "Hang Seng": "Asia", "Nikkei 225": "Asia",
+    "Nifty 50": "Asia", "Straits Times": "Asia", "Tadawul": "Middle East", "FTSE ADX": "Middle East",
 }
 BENCH_NAME = "S&P 500"
 
@@ -78,7 +88,10 @@ SECTORS = {
     "Real Estate": "XLRE", "Materials": "XLB",
 }
 
-QUANT_TICKERS = ["SPY", "QQQ", "DIA", "IWM"]
+# Price structure picker: every Major markets index (keyed by its card name) plus US ETFs
+QUANT_ETFS = {"SPY": "S&P 500 ETF", "QQQ": "Nasdaq 100 ETF", "DIA": "Dow Jones ETF", "IWM": "Russell 2000 ETF"}
+QUANT_TICKERS = list(QUANT_ETFS)
+QUANT_DEFAULT = "S&P 500"
 
 # Assets used in the correlation panel (cross-asset on purpose)
 CORR = {
@@ -227,10 +240,11 @@ def quant_for(df):
     sma20, sma50, sma200 = (c.rolling(n).mean() for n in (20, 50, 200))
     sd = c.rolling(20).std()
     bb_up, bb_lo = sma20 + 2 * sd, sma20 - 2 * sd
-    pctb = (c - bb_lo) / (bb_up - bb_lo)
     bw = (bb_up - bb_lo) / sma20 * 100
     vol_ma = df["Volume"].rolling(20).mean()
     rvol = df["Volume"] / vol_ma
+    # Several index feeds (e.g. Euronext 100, Nifty) carry no volume, so VWAP and RVOL are skipped
+    has_vol = bool((df["Volume"].tail(60) > 0).mean() >= 0.8)
     atr = atr_pct(df)
     r = rsi(c)
 
@@ -250,31 +264,43 @@ def quant_for(df):
         "swing": df["Low"].tail(60).idxmin(),
         "hivol": df["Volume"].tail(120).idxmax(),
     }
-    vwap = {k: _list(avwap(a), 2) for k, a in anchors.items()}
+    vwap = {k: _list(avwap(a), 2) for k, a in anchors.items()} if has_vol else {}
 
     bw_p = pct_rank(bw)
     return {
         "dates": _dates(idx),
         "open": _list(tail["Open"], 2), "high": _list(tail["High"], 2),
         "low": _list(tail["Low"], 2), "close": _list(tail["Close"], 2),
-        "volume": _list(tail["Volume"], 0),
-        "vol_ma20": _list(vol_ma.reindex(idx), 0),
-        "sma20": _list(sma20.reindex(idx), 2), "sma50": _list(sma50.reindex(idx), 2),
-        "sma200": _list(sma200.reindex(idx), 2),
+        "volume": _list(tail["Volume"], 0) if has_vol else None, "has_volume": has_vol,
+        "sma50": _list(sma50.reindex(idx), 2), "sma200": _list(sma200.reindex(idx), 2),
         "bb_up": _list(bb_up.reindex(idx), 2), "bb_lo": _list(bb_lo.reindex(idx), 2),
-        "pctb": _list(pctb.reindex(idx), 3), "bandwidth": _list(bw.reindex(idx), 3),
         "vwap": vwap,
         "vwap_anchor": {k: a.strftime("%Y-%m-%d") for k, a in anchors.items()},
         "stats": {
             "atr_pct": float(atr.iloc[-1]), "atr_pctile": pct_rank(atr),
             "bandwidth": float(bw.iloc[-1]), "bw_pctile": bw_p,
             "squeeze": bool(bw_p is not None and bw_p <= 15),
-            "rvol": None if pd.isna(rvol.iloc[-1]) else float(rvol.iloc[-1]),
+            "rvol": None if not has_vol or pd.isna(rvol.iloc[-1]) else float(rvol.iloc[-1]),
             "rsi": float(r.iloc[-1]),
             "dist200": None if pd.isna(sma200.iloc[-1]) else float((c.iloc[-1] / sma200.iloc[-1] - 1) * 100),
             "close": float(c.iloc[-1]),
         },
     }
+
+
+def price_structure(px):
+    tickers = {}
+    idx = [m for m in MARKETS if m["ticker"] in px and len(px[m["ticker"]]) > 210]
+    for m in idx:
+        proxy = ALIASES_USED.get(m["ticker"])
+        tickers[m["name"]] = {**quant_for(px[m["ticker"]]), "label": m["name"] + (f" ({proxy} ETF)" if proxy else ""),
+                              "symbol": proxy or m["ticker"], "ccy": PROXY_CCY.get(proxy, m["ccy"])}
+    etfs = [t for t in QUANT_TICKERS if t in px]
+    for t in etfs:
+        tickers[t] = {**quant_for(px[t]), "label": f"{t} · {QUANT_ETFS[t]}", "symbol": t, "ccy": "USD"}
+    groups = [g for g in (["Major markets", [m["name"] for m in idx]], ["US ETFs", etfs]) if g[1]]
+    default = QUANT_DEFAULT if QUANT_DEFAULT in tickers else next(iter(tickers), None)
+    return {"default": default, "groups": groups, "tickers": tickers}
 
 
 # --------------------------------------------------------------------------
@@ -294,7 +320,8 @@ def global_table(px):
         vol = r126.std() * math.sqrt(252) * 100
         r6 = ret(c, 126)
         rows.append({
-            "name": name, "ticker": t, "close": float(c.iloc[-1]),
+            "name": name, "ticker": t, "region": REGION.get(name), "proxy": ALIASES_USED.get(t),
+            "close": float(c.iloc[-1]),
             "dist200": float(dist.iloc[-1]), "dist200_pctile": pct_rank(dist),
             "state": "golden" if sma50.iloc[-1] > sma200.iloc[-1] else "death",
             "r1m": ret(c, 21), "r3m": ret(c, 63), "r6m": r6, "r12m": ret(c, 252),
@@ -592,7 +619,7 @@ def market_signals(px, regime_data, sc):
 
 
 # --------------------------------------------------------------------------
-# Panel 5 - Scorecard, regime, flags
+# Panel 5 - Scorecard, regime
 # --------------------------------------------------------------------------
 def band(score):
     return "good" if score >= 60 else "mid" if score >= 40 else "bad"
@@ -674,60 +701,6 @@ def scorecard(px, ro_score, ro_data, avg_corr, sec_closes):
     }, {"label": regime[0], "tone": regime[1], "detail": detail}, vix_p, dist
 
 
-def build_flags(px, sc, quant, ro, corr_data, vix_p, missing, asof):
-    flags = []
-
-    def add(tier, level, title, imp):
-        flags.append({"tier": tier, "level": level, "title": title, "implication": imp})
-
-    if vix_p is not None and vix_p >= 85:
-        add("Market risk", "high", f"Volatility very high (VIX {vix_p:.0f}th percentile)",
-            "Moves are larger than usual. Position sizes that were normal can carry much more risk.")
-    elif vix_p is not None and vix_p >= 70:
-        add("Market risk", "med", f"Volatility elevated (VIX {vix_p:.0f}th percentile)",
-            "Expect wider swings than the past year's norm.")
-    for c in ro.get("components", []):
-        if "term structure" in c["name"] and c["value"] > 1:
-            add("Market risk", "high", "VIX term structure inverted",
-                "Near-term fear exceeds longer-term fear, which tends to appear in sharp sell-offs.")
-    if corr_data:
-        p = corr_data["avg"]["pctile"]
-        if p is not None and p >= 85:
-            add("Market risk", "high", f"Correlations spiking ({p:.0f}th percentile)",
-                "Assets are moving together, so diversification is weaker than it looks.")
-        elif p is not None and p >= 70:
-            add("Market risk", "med", f"Correlations rising ({p:.0f}th percentile)",
-                "Diversification benefit is shrinking.")
-    comp = {c["key"]: c for c in sc["components"]}
-    if comp["trend"]["score"] <= 25:
-        add("Market risk", "high", "Primary asset in a downtrend",
-            "Below both key moving averages. Trend-following approaches are on the sidelines.")
-    spy_stats = quant["tickers"].get(PRIMARY, {}).get("stats", {})
-    if comp["breadth"]["score"] < 40 and spy_stats.get("dist200", 0) > 0:
-        add("Market risk", "med", "Breadth divergence",
-            "The index is above its 200D average but most sectors are not. Rallies like this can be fragile.")
-    if spy_stats.get("atr_pctile") and spy_stats["atr_pctile"] >= 85:
-        add("Market risk", "med", "Daily range unusually wide",
-            "ATR% is in the top 15% of the last year.")
-    if spy_stats.get("squeeze"):
-        add("Market risk", "low", "Bollinger squeeze",
-            "Volatility is unusually compressed, which often precedes a larger move (direction unknown).")
-
-    # Signal quality
-    add("Signal quality", "low", "Sentiment layer not included",
-        "Scores here use market data only. News/GDELT sentiment is unvalidated and kept out of the score.")
-
-    # Data quality
-    age = (pd.Timestamp.now("UTC").tz_localize(None).normalize() - pd.Timestamp(asof)).days
-    if age > 4:
-        add("Data quality", "high", f"Latest price data is {age} days old",
-            "Check the data-refresh workflow.")
-    if missing:
-        add("Data quality", "med", f"{len(missing)} ticker(s) failed to download",
-            ", ".join(missing[:8]) + ("…" if len(missing) > 8 else ""))
-    return flags
-
-
 # --------------------------------------------------------------------------
 # Orchestration
 # --------------------------------------------------------------------------
@@ -736,7 +709,7 @@ def compute(px, sample=False):
         raise RuntimeError(f"{PRIMARY} data missing - aborting so existing data is kept.")
     missing = [t for t in ALL_TICKERS if t not in px]
 
-    quant = {"default": PRIMARY, "tickers": {t: quant_for(px[t]) for t in QUANT_TICKERS if t in px}}
+    quant = price_structure(px)
     gtable = global_table(px)
     ro_data, ro_series = risk_on(px)
     corr_data, avg_corr = correlation(px)
@@ -751,7 +724,6 @@ def compute(px, sample=False):
 
     spy = px[PRIMARY]["Close"]
     asof = spy.index[-1].strftime("%Y-%m-%d")
-    flags = build_flags(px, sc, quant, ro_data, corr_data, vix_p, missing, asof)
 
     from sentiment import build as build_sentiment
     try:
@@ -771,7 +743,7 @@ def compute(px, sample=False):
             "chg1d": float((spy.iloc[-1] / spy.iloc[-2] - 1) * 100),
             "rsi": float(rsi(spy).iloc[-1]),
         },
-        "regime": regime, "scorecard": sc, "flags": flags, "markets": markets_data,
+        "regime": regime, "scorecard": sc, "markets": markets_data,
         "regimes": regime_data, "signals": signals,
         "multi": multi_data, "quant": quant, "globaltable": gtable,
         "riskon": ro_data, "corr": corr_data, "sectors": sec_data, "sentiment": senti,

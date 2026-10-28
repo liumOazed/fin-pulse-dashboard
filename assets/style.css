@@ -477,3 +477,20 @@ button.mk-proxy { font: inherit; background: none; border: 0; padding: 0; cursor
 .st-missing { display: flex; gap: 10px; align-items: center; font-size: 12.5px; color: var(--muted); border: 1px dashed var(--border); border-radius: 10px; padding: 10px 14px; }
 .st-missing .ls-ico { width: 26px; height: 26px; }
 .st-missing b { color: var(--ink-2); font-weight: 600; }
+
+/* ---------- Global trend table ---------- */
+table.gt th[data-k] { cursor: pointer; user-select: none; }
+table.gt th[data-k]:hover, table.gt th.on { color: var(--ink); }
+.gt-ar { display: inline-block; width: 10px; margin-left: 2px; font-size: 11px; }
+table.gt td { padding-top: 7px; padding-bottom: 7px; vertical-align: middle; }
+.gt-n { font-weight: 600; color: var(--ink); }
+.gt-sub { display: block; font-size: 11px; color: var(--muted); line-height: 1.3; }
+.gt-tag { font-size: 10.5px; font-weight: 500; color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: 4px; padding: 0 4px; margin-left: 4px; vertical-align: 1px; }
+.gt-pill { font-weight: 500; padding: 1px 8px; }
+.gt-pc { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.gt-m { width: 46px; height: 4px; background: var(--grid); border-radius: 2px; overflow: hidden; display: inline-block; }
+.gt-m i { display: block; height: 100%; background: var(--s1); border-radius: 2px; }
+.gt-rsi { font-weight: 500; }
+.gt-rsi.hot { color: var(--bad-ink); }
+.gt-rsi.cold { color: var(--good-ink); }
+@media (max-width: 700px) { table.gt td:first-child, table.gt th:first-child { position: sticky; left: 0; background: var(--card); z-index: 1; } }

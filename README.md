@@ -2,7 +2,7 @@
 
 Static decision dashboard (GitHub Pages). A scheduled GitHub Action pulls prices (yfinance), computes everything in Python, writes `data/pulse.json` + `data/pulse.js`, and the browser draws it with Plotly.
 
-Panels: Live signal + regime, Risk flags, Multi-index performance, Quant chart (anchored VWAP, Bollinger %B/bandwidth, ATR/RVOL), Global trend table, Risk-on composite, Correlation regime, Sectors (returns, stable beta, RRG).
+Panels: Major markets, Live signal + regime, Sentiment, Multi-index performance, Quant chart (anchored VWAP, Bollinger %B/bandwidth, ATR/RVOL), Global trend table, Risk-on composite, Correlation regime, Sectors (returns, stable beta, RRG).
 
 ## Quick look (no setup)
 Unzip and double-click `index.html` (needs internet for the Plotly CDN). It ships with **sample data** (a banner says so).
