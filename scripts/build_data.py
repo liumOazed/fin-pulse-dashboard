@@ -556,13 +556,13 @@ def market_signals(px, regime_data, sc):
             vtxt = f"21D vol {vser.iloc[-1]:.1f}% · {vp:.0f}th pct" if vp is not None else "n/a"
         comps = [
             {"key": "trend", "name": "Trend", "score": float(trend),
-             "text": f"{dist.iloc[-1]:+.1f}% vs 200D", "series": _list(dist.tail(120), 2),
+             "text": f"{dist.iloc[-1]:+.1f}% vs 200D", "series": _list(dist.tail(252), 2),
              "note": "Price vs 200D and 50D moving averages"},
             {"key": "momentum", "name": "Momentum", "score": float(mom),
-             "text": f"3M return {ret(c, 63):+.1f}%", "series": _list(c.tail(120), 2),
+             "text": f"3M return {ret(c, 63):+.1f}%", "series": _list(c.tail(252), 2),
              "note": "3-month return percentile vs 3 years"},
             {"key": "volatility", "name": "Volatility", "score": float(100 - (vp if vp is not None else 50)),
-             "text": vtxt, "series": _list(vser.tail(120), 2),
+             "text": vtxt, "series": _list(vser.tail(252), 2),
              "note": "Calm = high score (inverse percentile of volatility)"},
         ]
         rg = regs.get(m["key"])
@@ -571,7 +571,7 @@ def market_signals(px, regime_data, sc):
             comps.append({
                 "key": "regime", "name": "Regime", "score": 50 + 50 * (rg["probs"]["bull"] - rg["probs"]["bear"]),
                 "text": f"{rg['agree']} of {rg['n_models']} models agree",
-                "series": [round(50 + 50 * (b - e), 1) for b, e in zip(h["bull"][-120:], h["bear"][-120:])],
+                "series": [round(50 + 50 * (b - e), 1) for b, e in zip(h["bull"][-252:], h["bear"][-252:])],
                 "note": "50 + 50 x (P(bull) - P(bear)) from the regime consensus"})
         for x in comps:
             x["band"] = band(x["score"])
@@ -607,11 +607,11 @@ def scorecard(px, ro_score, ro_data, avg_corr, sec_closes):
     vix = px["^VIX"]["Close"] if "^VIX" in px else None
     if vix is not None and len(vix) > 100:
         vix_p = pct_rank(vix)
-        vol_score, vol_txt, vol_series = 100 - vix_p, f"VIX {vix.iloc[-1]:.1f} · {vix_p:.0f}th pct", vix.tail(120)
+        vol_score, vol_txt, vol_series = 100 - vix_p, f"VIX {vix.iloc[-1]:.1f} · {vix_p:.0f}th pct", vix.tail(252)
     else:
         a = atr_pct(px[PRIMARY])
         vix_p = pct_rank(a)
-        vol_score, vol_txt, vol_series = 100 - vix_p, f"ATR% {a.iloc[-1]:.2f} · {vix_p:.0f}th pct", a.tail(120)
+        vol_score, vol_txt, vol_series = 100 - vix_p, f"ATR% {a.iloc[-1]:.2f} · {vix_p:.0f}th pct", a.tail(252)
 
     b50 = (sec_closes > sec_closes.rolling(50).mean()).mean(axis=1) * 100
     b200 = (sec_closes > sec_closes.rolling(200).mean()).mean(axis=1) * 100
@@ -622,7 +622,7 @@ def scorecard(px, ro_score, ro_data, avg_corr, sec_closes):
         cp = pct_rank(avg_corr)
         div_score = 100 - (cp if cp is not None else 50)
         div_txt = f"Avg corr {avg_corr.iloc[-1]:.2f} · {cp:.0f}th pct" if cp is not None else f"Avg corr {avg_corr.iloc[-1]:.2f}"
-        div_series = avg_corr.tail(120)
+        div_series = avg_corr.tail(252)
     else:
         div_score, div_txt, div_series = 50, "n/a", pd.Series(dtype=float)
 
@@ -631,22 +631,22 @@ def scorecard(px, ro_score, ro_data, avg_corr, sec_closes):
 
     comps = [
         {"key": "trend", "name": "Trend", "score": float(trend),
-         "text": f"{PRIMARY} {dist.iloc[-1]:+.1f}% vs 200D", "series": _list(dist.tail(120), 2),
+         "text": f"{PRIMARY} {dist.iloc[-1]:+.1f}% vs 200D", "series": _list(dist.tail(252), 2),
          "note": "Price vs 200D and 50D moving averages"},
         {"key": "momentum", "name": "Momentum", "score": float(mom),
-         "text": f"3M return {ret(spy, 63):+.1f}%", "series": _list(spy.tail(120), 2),
+         "text": f"3M return {ret(spy, 63):+.1f}%", "series": _list(spy.tail(252), 2),
          "note": "3-month return percentile vs 3 years"},
         {"key": "volatility", "name": "Volatility", "score": float(vol_score), "text": vol_txt,
          "series": _list(vol_series, 2), "note": "Calm = high score (inverse percentile of VIX)"},
         {"key": "breadth", "name": "Breadth", "score": breadth,
          "text": f"{b50.iloc[-1]:.0f}% sectors > 50D · {b200.iloc[-1]:.0f}% > 200D",
-         "series": _list(breadth_s.tail(120), 1), "note": "Share of S&P sectors above their moving averages"},
+         "series": _list(breadth_s.tail(252), 1), "note": "Share of S&P sectors above their moving averages"},
         {"key": "diversification", "name": "Diversification", "score": float(div_score),
          "text": div_txt, "series": _list(div_series, 3),
          "note": "Rising average correlation = diversification failing"},
         {"key": "riskon", "name": "Risk Appetite", "score": ro_val,
          "text": f"{len(ro_data.get('components', []))} cross-asset ratios",
-         "series": _list(ro.tail(120), 1), "note": "Composite of cross-asset risk ratios"},
+         "series": _list(ro.tail(252), 1), "note": "Composite of cross-asset risk ratios"},
     ]
     for c in comps:
         c["band"] = band(c["score"])
