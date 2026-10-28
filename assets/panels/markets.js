@@ -6,6 +6,7 @@ Pulse.register({
     if (!rows.length) { el.innerHTML = '<div class="muted small">Market data not available yet. Run the data workflow to load it.</div>'; return; }
     st.win = st.win || 63;
     tools.appendChild(P.seg([[5, '1W'], [21, '1M'], [63, '3M'], [252, '1Y']], st.win, v => { st.win = v; draw(); }));
+    tools.appendChild(dataNotes(d, rows));
 
     const num = (v, dp = 2) => v == null ? '–' : Number(v).toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
     const signed = (v, dp = 2, s = '') => v == null ? '–' : (v > 0 ? '+' : v < 0 ? '−' : '') + num(Math.abs(v), dp) + s;
@@ -55,7 +56,7 @@ Pulse.register({
         const s = status(m), sp = spark(m, m.key), c = P.dir(m.chg_pct);
         return `<article class="mk" data-key="${m.key}">
           <div class="mk-head">
-            <div><div class="mk-name">${m.name}</div><div class="mk-sub">${m.exchange} · ${m.city} <span class="mk-clock">${s.clock}</span>${m.proxy ? ` · <span class="mk-proxy" title="No index feed today, showing the ${m.proxy} ETF in USD">${m.proxy} ETF</span>` : ''}</div></div>
+            <div><div class="mk-name">${m.name}</div><div class="mk-sub">${m.exchange} · ${m.city} <span class="mk-clock">${s.clock}</span>${m.proxy ? ` · <button type="button" class="mk-proxy" data-notes>${m.proxy} ETF</button>` : ''}</div></div>
             <span class="mk-status ${s.state}"><i></i>${s.label}</span>
           </div>
           <div class="mk-px">${num(m.last)}<span>${m.ccy}</span></div>
@@ -75,6 +76,8 @@ Pulse.register({
     draw();
 
     /* Keep the session pills and clocks current without redrawing the cards */
+    el.querySelectorAll('[data-notes]').forEach(b => b.onclick = e => { e.stopPropagation(); tools.querySelector('.info-btn').click(); });
+
     clearInterval(st.timer);
     st.timer = setInterval(() => {
       if (!document.body.contains(el)) return clearInterval(st.timer);
@@ -87,3 +90,33 @@ Pulse.register({
     }, 30000);
   }
 });
+
+/* "i" button + popover with data caveats for the market cards and Live signal */
+function dataNotes(d, rows) {
+  const meta = d.meta || {}, byTicker = {};
+  rows.forEach(m => byTicker[m.ticker] = m);
+  const proxyInfo = { KSA: 'iShares MSCI Saudi Arabia ETF', UAE: 'iShares MSCI UAE ETF' };
+  const proxies = Object.entries(meta.aliases || {}).filter(([t]) => byTicker[t]);
+  const items = [];
+  if (proxies.length) items.push(['ETF proxies', `<ul>${proxies.map(([t, a]) => `<li><b>${byTicker[t].name}</b>: Yahoo has no index feed, so the card shows the <b>${a}</b> (${proxyInfo[a] || 'ETF'}). It is priced in USD on a US exchange and tracks an MSCI version of the market, so its level, daily moves and trading hours differ from the local index.</li>`).join('')}</ul>`]);
+  if (meta.missing && meta.missing.length) items.push(['Missing data', `These tickers failed to download in the last refresh: ${meta.missing.join(', ')}.`]);
+  items.push(['Prices', 'Daily closes from Yahoo Finance (delayed), refreshed twice each weekday, around 12:05 and 21:35 UTC. Cards are not intraday quotes.']);
+  items.push(['Open / closed', 'Worked out from each exchange\'s normal hours and lunch breaks in your browser. Public holidays are not included. Tadawul trades Sunday to Thursday; the others Monday to Friday.']);
+  items.push(['Live signal', 'Volatility uses VIX for the S&P 500 and NASDAQ and each index\'s own 21-day volatility elsewhere. The cross-asset regime model uses US credit and VIX data, so it only votes on the two US indices. Risk appetite, Diversification and US sector breadth are the same for every market.']);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'info-wrap';
+  wrap.innerHTML = `<button type="button" class="info-btn" aria-label="Data notes" aria-expanded="false" title="Data notes">i${proxies.length ? '<span class="info-dot"></span>' : ''}</button>
+    <div class="info-pop" role="dialog" aria-label="Data notes" hidden>
+      <div class="info-head"><b>Data notes</b><button type="button" class="info-x" aria-label="Close">×</button></div>
+      ${items.map(([h, t]) => `<div class="info-item"><div class="info-h">${h}</div><div>${t}</div></div>`).join('')}
+    </div>`;
+  const btn = wrap.querySelector('.info-btn'), pop = wrap.querySelector('.info-pop');
+  const set = open => { pop.hidden = !open; btn.setAttribute('aria-expanded', open); };
+  btn.onclick = e => { e.stopPropagation(); set(pop.hidden); };
+  wrap.querySelector('.info-x').onclick = () => set(false);
+  pop.onclick = e => e.stopPropagation();
+  document.addEventListener('click', () => set(false));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') set(false); });
+  return wrap;
+}
