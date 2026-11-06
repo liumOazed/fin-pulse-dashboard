@@ -14,3 +14,4 @@ date,composite,label,regime,spy_close,trend,momentum,volatility,breadth,diversif
 2026-11-03,58.3,Neutral,Uptrend,754.35,75.0,11.1,58.3,77.3,68.7,59.7,bull,0.593,bull,0.569,bull,0.362,bear,0.599,neutral,0.689,bull,0.597,neutral,0.622,bear,0.594,bear,0.269,bull,0.932
 2026-11-04,46.5,Neutral,Uptrend · stressed,766.81,100.0,13.9,1.2,68.2,63.1,32.9,bear,0.517,bear,0.693,bull,0.361,bear,0.892,neutral,0.687,bull,0.597,neutral,0.597,bull,0.596,bear,0.267,bull,0.372
 2026-11-05,41.3,Risk-Off,Uptrend · stressed,740.31,75.0,6.6,4.0,63.6,66.7,32.1,bear,0.517,bear,0.693,bull,0.361,neutral,0.388,neutral,0.687,bull,0.598,neutral,0.595,bull,0.589,bear,0.267,bull,0.931
+2026-11-06,46.3,Neutral,Uptrend · stressed,738.03,75.0,6.5,7.5,63.6,87.3,37.8,bear,0.513,bear,0.689,bull,0.362,bear,0.587,neutral,0.678,bull,0.597,neutral,0.581,bull,0.588,neutral,0.581,bull,0.927
