@@ -28,3 +28,4 @@ date,composite,label,regime,spy_close,trend,momentum,volatility,breadth,diversif
 2026-11-23,29.2,Risk-Off,Transition,722.29,25.0,5.7,4.4,45.5,60.7,34.1,bear,0.692,bear,0.701,bull,0.697,bear,0.932,neutral,0.367,bear,0.6,bull,0.539,bull,0.597,bull,0.595,bear,0.597
 2026-11-24,30.4,Risk-Off,Transition,718.78,25.0,5.3,4.8,54.5,57.5,35.3,bear,0.691,bear,0.692,neutral,0.36,bear,0.933,neutral,0.365,bear,0.6,bull,0.669,bull,0.598,neutral,0.575,neutral,0.51
 2026-11-25,27.3,Risk-Off,Transition,716.7,25.0,4.1,4.4,63.6,33.7,33.2,bear,0.693,bear,0.693,bull,0.587,bear,0.932,neutral,0.48,bear,0.6,bull,0.696,bull,0.598,neutral,0.586,neutral,0.499
+2026-11-27,30.6,Risk-Off,Transition,728.32,25.0,6.5,11.9,63.6,33.3,43.0,bear,0.562,bear,0.562,bull,0.601,bear,0.932,neutral,0.406,bear,0.6,bull,0.695,bull,0.598,neutral,0.575,neutral,0.524
